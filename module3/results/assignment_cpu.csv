@@ -1,0 +1,12 @@
+cpu,no_branch,512,256,0
+cpu,branch,512,256,0
+cpu,no_branch,1024,256,2
+cpu,branch,1024,256,1
+cpu,no_branch,2048,256,9
+cpu,branch,2048,256,9
+cpu,no_branch,4096,256,32
+cpu,branch,4096,256,20
+cpu,no_branch,8192,256,86
+cpu,branch,8192,256,68
+cpu,no_branch,16384,256,313
+cpu,branch,16384,256,273

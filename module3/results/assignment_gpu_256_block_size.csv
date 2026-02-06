@@ -1,0 +1,12 @@
+gpu,no_branch,512,256,0.212832
+gpu,branch,512,256,0.046272
+gpu,no_branch,1024,256,0.199712
+gpu,branch,1024,256,0.044256
+gpu,no_branch,2048,256,0.209120
+gpu,branch,2048,256,0.043232
+gpu,no_branch,4096,256,0.202752
+gpu,branch,4096,256,0.042240
+gpu,no_branch,8192,256,0.202752
+gpu,branch,8192,256,0.039232
+gpu,no_branch,16384,256,0.208768
+gpu,branch,16384,256,0.045056

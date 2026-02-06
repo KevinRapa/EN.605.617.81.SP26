@@ -1,19 +1,30 @@
 //Based on the work of Andrew Krepps
 #include <stdio.h>
 
+// These next two functions are the 'simple' algorithms, similar to the ones in
+// assignment.c
 __global__ void gpu_kernel_no_branching(int *buffer_in, int *buffer_out)
 {
 	int i = threadIdx.x + (blockIdx.x * blockDim.x);
-	buffer_out[i] = buffer_in[i] & 1;
+
+	// blockDim.x does not depend on the thread index, so the threads in the warp should not diverge
+	// (blockDim.x) / 2 is the average of the loop iterations in gpu_kernel_branching, so I think this is a comparable algorithm instruction-wise
+	for (int j = 0; j < blockDim.x / 2; j++) {
+		// No 'if', increments J only if buffer_out[i] is odd
+		buffer_out[i] += j * (buffer_in[i] & 1);
+	}
 }
 
 __global__ void gpu_kernel_branching(int *buffer_in, int *buffer_out)
 {
 	int i = threadIdx.x + (blockIdx.x * blockDim.x);
-	if (buffer_in[i] & 1 == 1) {
-		buffer_out[i] = 1;
-	} else {
-		buffer_out[i] = 0;
+
+	// loop iterations depend on threadIdx, so this should cause divergence
+	for (int j = 0; j < threadIdx.x; j++) {
+		// Increments by 'j' using an 'if' statement. Should cause divergence
+		if (buffer_in[i] & 1 == 1) {
+			buffer_out[i] += j;
+		}
 	}
 }
 
@@ -27,6 +38,7 @@ void gpu_with_branching(int numBlocks, int blockSize, int *buffer_in, int *buffe
 	gpu_kernel_branching<<<numBlocks, blockSize>>>(buffer_in, buffer_out);
 }
 
+// Times gpu kernels using events. Allocated memory and populates with ascending digits
 float do_benchmark(int blockSize, int totalThreads, void (*benchmark_f)(int blockSize, int totalThreads, int *buffer_in, int *buffer_out))
 {
 	int *buffer_in = (int*)malloc(totalThreads * sizeof(int));
@@ -37,10 +49,12 @@ float do_benchmark(int blockSize, int totalThreads, void (*benchmark_f)(int bloc
 	cudaEvent_t stop;
 	int numBlocks = totalThreads / blockSize;
 
+	// Populate with ascending digits
 	for (int i = 0; i < totalThreads; i++) {
 		buffer_in[i] = i;
 	}
 
+	// Alocate memory and copy into GPU
 	cudaMalloc((void**)&gpu_buf_in, totalThreads * sizeof(int));
 	cudaMalloc((void**)&gpu_buf_out, totalThreads * sizeof(int));
 
@@ -49,6 +63,7 @@ float do_benchmark(int blockSize, int totalThreads, void (*benchmark_f)(int bloc
 	cudaEventCreate(&start);
 	cudaEventCreate(&stop);
 
+	// Start timer and run kernel using function parameter we passed in
 	cudaEventRecord(start);
 	benchmark_f(numBlocks, blockSize, gpu_buf_in, gpu_buf_out);
 	cudaDeviceSynchronize();
@@ -77,6 +92,7 @@ float do_benchmark(int blockSize, int totalThreads, void (*benchmark_f)(int bloc
 	return ms;
 }
 
+// Does a benchmark with both `gpu_no_branching` function and `gpu_with_branching` function
 void main_sub(int blockSize, int totalThreads)
 {
 	printf("Running GPU benchmark functions with %d block size and %d total threads\n", blockSize, totalThreads);
@@ -84,10 +100,11 @@ void main_sub(int blockSize, int totalThreads)
 	float elapsedMsNoBranching = do_benchmark(blockSize, totalThreads, gpu_no_branching);
 	float elapsedMsWithBranching = do_benchmark(blockSize, totalThreads, gpu_with_branching);
 
-	printf("%s,%s,%d,%d,%f\n", "gpu", "no_branch", totalThreads, blockSize, elapsedMsNoBranching);
-	printf("%s,%s,%d,%d,%f\n", "gpu", "branch", totalThreads, blockSize, elapsedMsWithBranching);
+	fprintf(stderr, "%s,%s,%d,%d,%f\n", "gpu", "no_branch", totalThreads, blockSize, elapsedMsNoBranching);
+	fprintf(stderr, "%s,%s,%d,%d,%f\n", "gpu", "branch", totalThreads, blockSize, elapsedMsWithBranching);
 }
 
+// Unchanged main function from template. Calls main_sub
 int main(int argc, char** argv)
 {
 	// read command line arguments

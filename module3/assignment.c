@@ -4,26 +4,36 @@
 #include <iostream>
 #include <chrono>
 
-// "Is odd" function
-void cpu_no_branching(int *buffer_in, int *buffer_out, int size)
-{
-	for (int i = 0; i < size; i++) {
-		buffer_out[i] = buffer_in[i] & 1;
-	}
-}
-
-// "Is odd" function
+// These next two functions are the 'simple' algorithms
 void cpu_with_branching(int *buffer_in, int *buffer_out, int size)
 {
+	// For every digit in buffer_in
 	for (int i = 0; i < size; i++) {
-		if (buffer_in[i] & 1 == 1) {
-			buffer_out[i] = 1;
-		} else {
-			buffer_out[i] = 0;
+		// For every number j from 0 to that digit
+		for (int j = 0; j < buffer_in[i]; j++) {
+			// Add j only if buffer_in[i] is odd
+			if (buffer_in[i] & 1 == 1) {
+				buffer_out[i] += j;
+			}
 		}
 	}
 }
 
+// buffer_in will hold ascending digits from 0 to size-1
+void cpu_no_branching(int *buffer_in, int *buffer_out, int size)
+{
+	// For every digit in buffer_in
+	for (int i = 0; i < size; i++) {
+		// For every number j from 0 to size/2
+		// size/2 is average of the number of iterations for the other function
+		for (int j = 0; j < size / 2; j++) {
+			// Add j only if buffer_in[i] is odd
+			buffer_out[i] += j * (buffer_in[i] & 1);
+		}
+	}
+}
+
+// Times the cpu functions using std::chrono
 long do_benchmark(int blockSize, int totalThreads, void (*benchmark_f)(int *buffer_in, int *buffer_out, int size))
 {
 	(void)blockSize;  // No GPU, so we can't make use of this
@@ -54,10 +64,11 @@ void main_sub(int blockSize, int totalThreads)
 	long elapsedMsNoBranching = do_benchmark(blockSize, totalThreads, cpu_no_branching);
 	long elapsedMsWithBranching = do_benchmark(blockSize, totalThreads, cpu_with_branching);
 
-	printf("%s,%s,%d,%d,%ld\n", "cpu", "no_branch", totalThreads, blockSize, elapsedMsNoBranching);
-	printf("%s,%s,%d,%d,%ld\n", "cpu", "branch", totalThreads, blockSize, elapsedMsWithBranching);
+	fprintf(stderr, "%s,%s,%d,%d,%ld\n", "cpu", "no_branch", totalThreads, blockSize, elapsedMsNoBranching);
+	fprintf(stderr, "%s,%s,%d,%d,%ld\n", "cpu", "branch", totalThreads, blockSize, elapsedMsWithBranching);
 }
 
+// Unchanged main function from template. Calls main_sub
 int main(int argc, char** argv)
 {
 	// read command line arguments
