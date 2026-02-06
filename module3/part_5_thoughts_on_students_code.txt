@@ -1,0 +1,15 @@
+
+Problems I see with student's code:
+
+1. Allocates the host buffers on the stack - there won't be enough stack memory to support high data volumes (in the millions)
+   Not inherently a problem, just a notable limitation in my opinion.
+
+2. Uses std::chrono to measure kernel execution time. I don't think this is the best way to measure because the kernel runs
+   asynchonously from the CPU. It will also include overhead time from calling the kernel. There is the device function
+   clock() that can be used, or kernel events. 
+
+3. Does not synchonize with the GPU device before taking the end time. The kernel wil return immediately so the student isnt
+   actually measuring any code execution at all.
+
+4. Lastly, assuming what the `add` function does, this probably does not demonstrate the impact of branching on kernel
+   efficiency.
