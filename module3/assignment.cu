@@ -1,8 +1,13 @@
 //Based on the work of Andrew Krepps
 #include <stdio.h>
+#include <chrono>
+#include <stdlib.h>
+#include <iostream>
 
-// These next two functions are the 'simple' algorithms, similar to the ones in
-// assignment.c
+// Imposing a max limit on the input array for CPU functions, since otherwise they will take too long
+#define MAX_ARRAY_SIZE_CPU 100000
+
+// These next four functions are the 'simple' algorithms used to benchmark
 __global__ void gpu_kernel_no_branching(int *buffer_in, int *buffer_out)
 {
 	int i = threadIdx.x + (blockIdx.x * blockDim.x);
@@ -28,6 +33,34 @@ __global__ void gpu_kernel_branching(int *buffer_in, int *buffer_out)
 	}
 }
 
+void cpu_with_branching(int *buffer_in, int *buffer_out, int size)
+{
+	// For every digit in buffer_in
+	for (int i = 0; i < size; i++) {
+		// For every number j from 0 to that digit
+		for (int j = 0; j < buffer_in[i]; j++) {
+			// Add j only if buffer_in[i] is odd
+			if (buffer_in[i] & 1 == 1) {
+				buffer_out[i] += j;
+			}
+		}
+	}
+}
+
+// buffer_in will hold ascending digits from 0 to size-1
+void cpu_no_branching(int *buffer_in, int *buffer_out, int size)
+{
+	// For every digit in buffer_in
+	for (int i = 0; i < size; i++) {
+		// For every number j from 0 to size/2
+		// size/2 is average of the number of iterations for the other function
+		for (int j = 0; j < size / 2; j++) {
+			// Add j only if buffer_in[i] is odd
+			buffer_out[i] += j * (buffer_in[i] & 1);
+		}
+	}
+}
+
 void gpu_no_branching(int numBlocks, int blockSize, int *buffer_in, int *buffer_out)
 {
 	gpu_kernel_no_branching<<<numBlocks, blockSize>>>(buffer_in, buffer_out);
@@ -38,8 +71,31 @@ void gpu_with_branching(int numBlocks, int blockSize, int *buffer_in, int *buffe
 	gpu_kernel_branching<<<numBlocks, blockSize>>>(buffer_in, buffer_out);
 }
 
+// Times the cpu functions using std::chrono
+long do_benchmark_cpu(int blockSize, int totalThreads, void (*benchmark_f)(int *buffer_in, int *buffer_out, int size))
+{
+	(void)blockSize;  // No GPU, so we can't make use of this
+
+	int *buffer_in = (int*)malloc(totalThreads * sizeof(int));
+	int *buffer_out = (int*)malloc(totalThreads * sizeof(int));
+
+	for (int i = 0; i < totalThreads; i++) {
+		buffer_in[i] = i;
+	}
+
+	auto start = std::chrono::high_resolution_clock::now();
+
+	benchmark_f(buffer_in, buffer_out, totalThreads);
+
+	auto stop = std::chrono::high_resolution_clock::now();
+
+	free(buffer_out);
+	free(buffer_in);
+
+	return std::chrono::duration_cast<std::chrono::milliseconds>(stop - start).count();
+}
 // Times gpu kernels using events. Allocated memory and populates with ascending digits
-float do_benchmark(int blockSize, int totalThreads, void (*benchmark_f)(int blockSize, int totalThreads, int *buffer_in, int *buffer_out))
+float do_benchmark_gpu(int blockSize, int totalThreads, void (*benchmark_f)(int blockSize, int totalThreads, int *buffer_in, int *buffer_out))
 {
 	int *buffer_in = (int*)malloc(totalThreads * sizeof(int));
 	int *buffer_out = (int*)malloc(totalThreads * sizeof(int));
@@ -92,16 +148,29 @@ float do_benchmark(int blockSize, int totalThreads, void (*benchmark_f)(int bloc
 	return ms;
 }
 
-// Does a benchmark with both `gpu_no_branching` function and `gpu_with_branching` function
+// Runs the benchmarking functions
 void main_sub(int blockSize, int totalThreads)
 {
-	printf("Running GPU benchmark functions with %d block size and %d total threads\n", blockSize, totalThreads);
+	printf("Running benchmark functions with %d block size and %d total threads\n\n", blockSize, totalThreads);
 
-	float elapsedMsNoBranching = do_benchmark(blockSize, totalThreads, gpu_no_branching);
-	float elapsedMsWithBranching = do_benchmark(blockSize, totalThreads, gpu_with_branching);
+	// Pipe to stderr to collect results easier
+	fprintf(stderr, "%s,%s,%s,%s,%s\n", "type", "behavior", "threadCount", "blockSize", "millisecondsElapsed");
 
-	fprintf(stderr, "%s,%s,%d,%d,%f\n", "gpu", "no_branch", totalThreads, blockSize, elapsedMsNoBranching);
-	fprintf(stderr, "%s,%s,%d,%d,%f\n", "gpu", "branch", totalThreads, blockSize, elapsedMsWithBranching);
+	float elapsedMsNoBranchingGPU = do_benchmark_gpu(blockSize, totalThreads, gpu_no_branching);
+	float elapsedMsWithBranchingGPU = do_benchmark_gpu(blockSize, totalThreads, gpu_with_branching);
+
+	fprintf(stderr, "%s,%s,%d,%d,%f\n", "gpu", "no_branch", totalThreads, blockSize, elapsedMsNoBranchingGPU);
+	fprintf(stderr, "%s,%s,%d,%d,%f\n", "gpu", "branch", totalThreads, blockSize, elapsedMsWithBranchingGPU);
+
+	if (totalThreads < MAX_ARRAY_SIZE_CPU) {
+		long elapsedMsNoBranchingCPU = do_benchmark_cpu(blockSize, totalThreads, cpu_no_branching);
+		long elapsedMsWithBranchingCPU = do_benchmark_cpu(blockSize, totalThreads, cpu_with_branching);
+
+		fprintf(stderr, "%s,%s,%d,%d,%ld\n", "cpu", "no_branch", totalThreads, blockSize, elapsedMsNoBranchingCPU);
+		fprintf(stderr, "%s,%s,%d,%d,%ld\n", "cpu", "branch", totalThreads, blockSize, elapsedMsWithBranchingCPU);
+	} else {
+		printf("Skipping CPU benchmark because input is too large\n");
+	}
 }
 
 // Unchanged main function from template. Calls main_sub
