@@ -28,3 +28,6 @@ util.h -
 
 timings_example.txt -
     example of what 'timings.txt' will look like
+
+typescript -
+    console log of program usage
