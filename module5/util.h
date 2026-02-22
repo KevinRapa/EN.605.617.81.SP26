@@ -2,6 +2,7 @@
 #ifndef UTIL_H
 #define UTIL_H
 
+__host__ cudaEvent_t get_time(void);
 void generate_random_matrix(int *out, int rows, int cols, int max);
 void print_matrix(const int *in, int rows, int cols, const char *name);
 int *malloc_matrix_int(int rows, int cols);

@@ -2,6 +2,14 @@
 #include <stdlib.h>
 #include <stdio.h>
 
+__host__ cudaEvent_t get_time(void)
+{
+	cudaEvent_t time;
+	cudaEventCreate(&time);
+	cudaEventRecord(time);
+	return time;
+}
+
 __host__ void generate_random_matrix(int *out, int rows, int cols, int max)
 {
 	for (int i = 0; i < rows * cols; i++) {
