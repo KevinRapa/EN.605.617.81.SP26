@@ -6,11 +6,13 @@
 #define ROWS_MAX 32
 #define COLS_MAX 32
 
+// Holds the matrix we will add to the matrix product.
 __constant__ int ADDEND[ROWS_MAX * COLS_MAX];
 
 __global__ void kernel_matrix_madd(int *out, const int *a, int rowsA, int colsA, const int *b, int rowsB, int colsB)
 {
 	extern __shared__ int matrixCache[];
+	extern __shared__ int outTranspose[];
 
 	// copy the first matrix into the first half of matrixCache,
 	// then transpose the second matrix into the second half of matrixCache,
@@ -36,7 +38,13 @@ __global__ void kernel_matrix_madd(int *out, const int *a, int rowsA, int colsA,
 		result += matrixCache[(threadIdx.x * colsA) + i] * matrixCache[(rowsA * colsA) + (threadIdx.y * colsB) + i];
 	}
 
-	out[threadIdx.y * blockDim.x + threadIdx.x] = result ;//+ ADDEND[threadIdx.y * blockDim.x + threadIdx.x];
+	// A lot of trial and error here to be honest... I got to point where I could get the transpose answer in the output buffer.
+	// So since I am too burnt out, I'll just copy the transpose into a shared buffer and then transpose it into the final output.
+	outTranspose[threadIdx.y * blockDim.x + threadIdx.x] = result + ADDEND[threadIdx.y * blockDim.x + threadIdx.x];
+	
+	__syncthreads();
+
+	out[threadIdx.y * blockDim.x + threadIdx.x] = outTranspose[threadIdx.x * blockDim.y + threadIdx.y];
 }
 
 void accelerated_matrix_madd(int *result, const int *A, int rowsA, int colsA, const int *B, int rowsB, int colsB, const int *addend)
