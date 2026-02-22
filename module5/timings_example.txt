@@ -1,0 +1,29 @@
+Weird sizes:
+Time elapsed for sizes [ 7, 7] * [ 7, 7] + [ 7, 7]: 0.104096 ms
+Time elapsed for sizes [ 5, 5] * [ 5, 1] + [ 5, 1]: 0.061440 ms
+Time elapsed for sizes [32,24] * [24, 3] + [32, 3]: 0.492960 ms
+Time elapsed for sizes [32,32] * [32, 1] + [32, 1]: 0.651936 ms
+Square sizes:
+Time elapsed for sizes [ 2, 2] * [ 2, 2] + [ 2, 2]: 0.049760 ms
+Time elapsed for sizes [ 4, 4] * [ 4, 4] + [ 4, 4]: 0.063552 ms
+Time elapsed for sizes [ 8, 8] * [ 8, 8] + [ 8, 8]: 0.126112 ms
+Time elapsed for sizes [16,16] * [16,16] + [16,16]: 0.319488 ms
+Time elapsed for sizes [32,32] * [32,32] + [32,32]: 1.140736 ms
+
+Weird sizes:
+Time elapsed for sizes [ 7, 7] * [ 7, 7] + [ 7, 7]: 0.098336 ms
+Time elapsed for sizes [ 5, 5] * [ 5, 1] + [ 5, 1]: 0.134560 ms
+Time elapsed for sizes [32,24] * [24, 3] + [32, 3]: 0.453024 ms
+Time elapsed for sizes [32,32] * [32, 1] + [32, 1]: 0.538368 ms
+Square sizes:
+Time elapsed for sizes [ 2, 2] * [ 2, 2] + [ 2, 2]: 0.051264 ms
+Time elapsed for sizes [ 4, 4] * [ 4, 4] + [ 4, 4]: 0.042752 ms
+Time elapsed for sizes [ 8, 8] * [ 8, 8] + [ 8, 8]: 0.044896 ms
+Time elapsed for sizes [16,16] * [16,16] + [16,16]: 0.050080 ms
+Time elapsed for sizes [32,32] * [32,32] + [32,32]: 0.099296 ms
+
+Weird sizes:
+Time elapsed for sizes [ 7, 7] * [ 7, 7] + [ 7, 7]: 0.044640 ms
+Time elapsed for sizes [ 5, 5] * [ 5, 1] + [ 5, 1]: 0.041728 ms
+Time elapsed for sizes [32,24] * [24, 3] + [32, 3]: 0.051040 ms
+Time elapsed for sizes [32,32] * [32, 1] + [32, 1]: 0.057056 ms
