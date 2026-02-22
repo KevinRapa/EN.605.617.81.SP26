@@ -17,7 +17,7 @@ __host__ void print_matrix(const int *in, int rows, int cols, const char *name)
 		printf("[ ");
 
 		for (int j = 0; j < cols; j++) {
-			printf("%d, ", in[i * cols +j]);
+			printf("%4d, ", in[i * cols +j]);
 		}
 
 		printf(" ]\n");
