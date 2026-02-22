@@ -106,7 +106,7 @@ int main(int argc, char *argv[])
 	int colsA = atoi(argv[2]);
 	int rowsB = atoi(argv[3]);
 	int colsB = atoi(argv[4]);
-	int max = 200;
+	int maxValue = 200;
 
 	if (rowsA > ROWS_MAX || rowsB > ROWS_MAX || colsA > COLS_MAX || colsB > COLS_MAX) {
 		printf("Dimensions are too large. Max is %d x %d\n", ROWS_MAX, COLS_MAX);
@@ -114,7 +114,7 @@ int main(int argc, char *argv[])
 	}
 
 	if (argc > 5) {
-		max = atoi(argv[5]);
+		maxValue = atoi(argv[5]);
 	}
 
 	if (colsA != rowsB) {
@@ -122,7 +122,7 @@ int main(int argc, char *argv[])
 		return 1;
 	}
 
-	printf("RowsA: %d\nColsA: %d\nRowsB: %d\nColsB: %d\nMax: %d\n", rowsA, colsA, rowsB, colsB, max);
+	printf("RowsA: %d\nColsA: %d\nRowsB: %d\nColsB: %d\nMax: %d\n", rowsA, colsA, rowsB, colsB, maxValue);
 
 	int rowsC = rowsA;
 	int colsC = colsB;
@@ -134,9 +134,9 @@ int main(int argc, char *argv[])
 
 	srand(time(NULL));
 
-	generate_random_matrix(multiplicand, rowsA, colsA, max);
-	generate_random_matrix(multiplier, rowsB, colsB, max);
-	generate_random_matrix(addend, rowsC, colsC, max);
+	generate_random_matrix(multiplicand, rowsA, colsA, maxValue);
+	generate_random_matrix(multiplier, rowsB, colsB, maxValue);
+	generate_random_matrix(addend, rowsC, colsC, maxValue);
 
 	print_matrix(multiplicand, rowsA, colsA, "A");
 	print_matrix(multiplier, rowsB, colsB, "B");
@@ -151,7 +151,8 @@ int main(int argc, char *argv[])
 	free(addend);
 	free(result);
 
-	fprintf(stderr, "Time elapsed for sizes [%2d,%2d] * [%2d,%2d] + [%2d,%2d]: %f ms\n", rowsA, colsA, rowsB, colsB, rowsC, colsC, timeElapsed);
+	fprintf(stderr, "Time elapsed for sizes [%2d,%2d] * [%2d,%2d] + [%2d,%2d]: %f ms\n",
+	        rowsA, colsA, rowsB, colsB, rowsC, colsC, timeElapsed);
 
 	return 0;
 }
