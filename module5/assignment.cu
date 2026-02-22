@@ -32,14 +32,11 @@ __global__ void kernel_matrix_madd(int *out, const int *a, int rowsA, int colsA,
 
 	int result = 0;
 
-	// TODO: Bug here?
 	for (int i = 0; i < colsA; i++) {
-		for (int j = 0; j < rowsB; j++) {
-			result += matrixCache[(threadIdx.y * colsA) + i] * matrixCache[(rowsA * colsA) + (threadIdx.x * rowsB) + j];
-		}
+		result += matrixCache[(threadIdx.x * colsA) + i] * matrixCache[(rowsA * colsA) + (threadIdx.y * colsB) + i];
 	}
 
-	out[threadIdx.y * blockDim.x + threadIdx.x] = result + ADDEND[threadIdx.y * blockDim.x + threadIdx.x];
+	out[threadIdx.y * blockDim.x + threadIdx.x] = result ;//+ ADDEND[threadIdx.y * blockDim.x + threadIdx.x];
 }
 
 void accelerated_matrix_madd(int *result, const int *A, int rowsA, int colsA, const int *B, int rowsB, int colsB, const int *addend)
