@@ -1,28 +1,26 @@
 
 #include <stdio.h>
 
-__global__ 
-__global__ void kernelSplitEvensOdds(int *evensOut, int *oddsOut, int *data, int *evensCount, int *oddsCount)
+__global__ void kernelGetDivisible(int *divisiblesOut, int *countOut, int *data, int divisor)
 {
-	__shared__ int evensOddsCount[2];
+	extern __shared__ int count[];  // Length should equal divisor
 
-	int *evensOddsPtrs[2] = { evensOut, oddsOut };
+	int threadId = threadIdx.x;
 
-	int threadId = blockIdx.x * blockDim.x + threadIdx.x;
+	int modulus = data[threadId] % divisor;
 
-	bool isOdd = data[threadId] & 1;
+	int queueIdx = atomicAdd(count + modulus, 1);
 
-	int queueIdx = atomicAdd(evensOddsCount + isOdd, 1);
-
-	evensOddsPtrs[isOdd][queueIdx] = data[threadId];
+	if (modulus == 0) {
+		divisiblesOut[queueIdx] = data[threadId];
+	}
 
 	__syncthreads();
 
-	if (threadId == 0) {
-		*evensCount = evensOddsCount[0];
-		*oddsCount = evensOddsCount[1];
-	}
+	*countOut = count[0];
+	count[0] = 0;
 }
+
 
 __host__ void generate_randoms(int *out, int size, int maxValue)
 {
@@ -44,60 +42,77 @@ __host__ void printArray(int *data, int size, const char *name)
 	printf(" ]\n");
 }
 
+void callKernelWithDivisor(int *divisiblesOut, int *countOut, int *dataD, int length, int divisor, int numDivisors)
+{	
+	int *countD = NULL;
+	int *divisiblesD = NULL;
+
+	cudaMalloc(&countD, sizeof(*countD));
+	cudaMalloc(&divisiblesD, length * sizeof(*divisiblesD));
+
+	kernelGetDivisible<<<1, length, divisor * sizeof(int)>>>(divisiblesD, countD, dataD, divisor);
+
+	cudaDeviceSynchronize();
+
+	cudaMemcpy(divisiblesOut, divisiblesD, length * sizeof(*divisiblesD), cudaMemcpyDeviceToHost);
+	cudaMemcpy(countOut, countD, sizeof(*countD), cudaMemcpyDeviceToHost);
+
+	cudaFree(divisiblesD);
+	cudaFree(countD);
+}
+
 int main(int argc, char **argv)
 {
-	int *data = NULL, *evens = NULL, *odds = NULL;
-	int evensCount = 0, oddsCount = 0;
-	int *dataD = NULL, *evensD = NULL, *oddsD = NULL;
-	int *evensCountD = NULL, *oddsCountD = NULL;
+	int *data = NULL;
+	int *dataD = NULL;
+	int **lists = NULL;
+	int *counts = NULL;
 
-
-	if (argc < 3) {
-		printf("Must supply length and max value\n");
+	if (argc < 4) {
+		printf("Must supply length, max value, and a list of numbers\n");
 		return 1;
 	}
 
 	int arrayLength = atoi(argv[1]);
 	int maxValue = atoi(argv[2]);
 	int arraySize = arrayLength * sizeof(*data);
+	int numDivisors = argc - 3;
 
+	// List of lists. Each lists hold numbers divisible by the corresponding divisor
+	lists = (int**)malloc(numDivisors * sizeof(*lists));
+
+	// List of counts; length of each list in `lists`
+	counts = (int*)malloc(numDivisors * sizeof(*counts));
+
+	// For each divisor, allocate memory to store the numbers divisible by the divisor
+	for (int i = 0; i < numDivisors; i++) {
+		cudaMallocHost(lists + i, arraySize);
+	}
+
+	// Generate input data
 	cudaMallocHost(&data, arraySize);
-	cudaMallocHost(&evens, arraySize);
-	cudaMallocHost(&odds, arraySize);
-
 	cudaMalloc(&dataD, arraySize);
-	cudaMalloc(&evensD, arraySize);
-	cudaMalloc(&oddsD, arraySize);
-	cudaMalloc(&evensCountD, sizeof(*evensCountD));
-	cudaMalloc(&oddsCountD, sizeof(*oddsCountD));
-	
 	generate_randoms(data, arrayLength, maxValue);
-
 	printArray(data, arrayLength, "Data");
-
 	cudaMemcpy(dataD, data, arraySize, cudaMemcpyHostToDevice);
 
-	kernelSplitEvensOdds<<<1, arrayLength>>>(evensD, oddsD, dataD, evensCountD, oddsCountD);
+	for (int i = 0; i < numDivisors; i++) {
+		int currentDivisor = atoi(argv[3 + i]);
+		callKernelWithDivisor(lists[i], counts + i, dataD, arrayLength, currentDivisor, numDivisors);
+		printf("Number divisible by %d: %d\n", currentDivisor, counts[i]);
+		printArray(lists[i], counts[i], "Divisible");
+	}
 
-	cudaMemcpy(&evensCount, evensCountD, sizeof(*evensCountD), cudaMemcpyDeviceToHost);
-	cudaMemcpy(&oddsCount, oddsCountD, sizeof(*oddsCountD), cudaMemcpyDeviceToHost);
-	cudaMemcpy(evens, evensD, evensCount * sizeof(*evensD), cudaMemcpyDeviceToHost);
-	cudaMemcpy(odds, oddsD, oddsCount * sizeof(*oddsD), cudaMemcpyDeviceToHost);
-
-	cudaFree(dataD);
-	cudaFree(evensD);
-	cudaFree(oddsD);
-	cudaFree(evensCountD);
-	cudaFree(oddsCountD);
-
-	printf("Number of evens: %d, odds: %d\n", evensCount, oddsCount);
-
-	printArray(evens, evensCount, "Evens");
-	printArray(odds, oddsCount, "Odds");
-	
+	// Free memory
 	cudaFreeHost(data);
-	cudaFreeHost(odds);
-	cudaFreeHost(evens);
+	cudaFree(dataD);
+
+	for (int i = 0; i < numDivisors; i++) {
+		cudaFreeHost(lists[i]);
+	}
+
+	free(lists);
+	free(counts);
 
 	return 0;
 }
