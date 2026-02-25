@@ -21,6 +21,11 @@ __global__ void kernelGetDivisible(int *divisiblesOut, int *countOut, int *data,
 	count[0] = 0;
 }
 
+__global__ void kernelGetMax(int *out, int *data)
+{
+	atomicMax(out, data[threadIdx.x]);
+}
+
 
 __host__ void generate_randoms(int *out, int size, int maxValue)
 {
@@ -42,31 +47,14 @@ __host__ void printArray(int *data, int size, const char *name)
 	printf(" ]\n");
 }
 
-void callKernelWithDivisor(int *divisiblesOut, int *countOut, int *dataD, int length, int divisor, int numDivisors)
-{	
-	int *countD = NULL;
-	int *divisiblesD = NULL;
-
-	cudaMalloc(&countD, sizeof(*countD));
-	cudaMalloc(&divisiblesD, length * sizeof(*divisiblesD));
-
-	kernelGetDivisible<<<1, length, divisor * sizeof(int)>>>(divisiblesD, countD, dataD, divisor);
-
-	cudaDeviceSynchronize();
-
-	cudaMemcpy(divisiblesOut, divisiblesD, length * sizeof(*divisiblesD), cudaMemcpyDeviceToHost);
-	cudaMemcpy(countOut, countD, sizeof(*countD), cudaMemcpyDeviceToHost);
-
-	cudaFree(divisiblesD);
-	cudaFree(countD);
-}
-
 int main(int argc, char **argv)
 {
 	int *data = NULL;
 	int *dataD = NULL;
-	int **lists = NULL;
+	int **divisibles = NULL;
+	int **divisiblesD = NULL;
 	int *counts = NULL;
+	int *countsD = NULL;
 
 	if (argc < 4) {
 		printf("Must supply length, max value, and a list of numbers\n");
@@ -79,14 +67,17 @@ int main(int argc, char **argv)
 	int numDivisors = argc - 3;
 
 	// List of lists. Each lists hold numbers divisible by the corresponding divisor
-	lists = (int**)malloc(numDivisors * sizeof(*lists));
+	divisibles = (int**)malloc(numDivisors * sizeof(*divisibles));
+	divisiblesD = (int**)malloc(numDivisors * sizeof(*divisibles));
 
 	// List of counts; length of each list in `lists`
 	counts = (int*)malloc(numDivisors * sizeof(*counts));
+	countsD = (int*)malloc(numDivisors * sizeof(*countsD));
 
 	// For each divisor, allocate memory to store the numbers divisible by the divisor
 	for (int i = 0; i < numDivisors; i++) {
-		cudaMallocHost(lists + i, arraySize);
+		cudaMallocHost(divisibles + i, arraySize);
+		cudaMallocHost(divisiblesD + i, arraySize);
 	}
 
 	// Generate input data
@@ -98,9 +89,15 @@ int main(int argc, char **argv)
 
 	for (int i = 0; i < numDivisors; i++) {
 		int currentDivisor = atoi(argv[3 + i]);
-		callKernelWithDivisor(lists[i], counts + i, dataD, arrayLength, currentDivisor, numDivisors);
+
+		kernelGetDivisible<<<1, arrayLength, currentDivisor * sizeof(int)>>>(divisiblesD[i], countsD + i, dataD, currentDivisor);
+
+		cudaDeviceSynchronize();
+		cudaMemcpy(counts + i, countsD + i, sizeof(int), cudaMemcpyDeviceToHost);
+		cudaMemcpy(divisibles[i], divisiblesD[i], counts[i] * sizeof(int), cudaMemcpyDeviceToHost);
+
 		printf("Number divisible by %d: %d\n", currentDivisor, counts[i]);
-		printArray(lists[i], counts[i], "Divisible");
+		printArray(divisibles[i], counts[i], "Divisible");
 	}
 
 	// Free memory
@@ -108,11 +105,14 @@ int main(int argc, char **argv)
 	cudaFree(dataD);
 
 	for (int i = 0; i < numDivisors; i++) {
-		cudaFreeHost(lists[i]);
+		cudaFreeHost(divisibles[i]);
+		cudaFree(divisiblesD[i]);
 	}
 
-	free(lists);
+	free(divisibles);
+	free(divisiblesD);
 	free(counts);
+	free(countsD);
 
 	return 0;
 }
