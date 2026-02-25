@@ -1,5 +1,6 @@
 
 #include <stdio.h>
+#include <pthread.h>
 
 __global__ void kernelGetDivisible(int *divisiblesOut, int *countOut, int *data, int divisor)
 {
@@ -47,16 +48,50 @@ __host__ void printArray(int *data, int size, const char *name)
 	printf(" ]\n");
 }
 
+struct threadData {
+	cudaEvent_t event;
+	cudaStream_t stream;
+	int *countD;
+	int *divisiblesD;
+	int divisor;
+};
+
+void *callback(void *arg)
+{
+	struct threadData *threadData = (struct threadData*)arg;
+	int *count = NULL;
+	int *divisibles = NULL;
+
+	cudaMallocHost(&divisibles, 256 * sizeof(int));
+	cudaMallocHost(&count, sizeof(int));
+	
+	cudaEventSynchronize(threadData->event);
+
+	printf("Divisor %d is done\n", threadData->divisor);
+
+	cudaMemcpyAsync(count, threadData->countD, sizeof(int), cudaMemcpyDeviceToHost, threadData->stream);
+	cudaMemcpyAsync(divisibles, threadData->divisiblesD, *threadData->countD * sizeof(int), cudaMemcpyDeviceToHost, threadData->stream);
+
+	cudaStreamSynchronize(threadData->stream);
+	cudaEventDestroy(threadData->event);
+	cudaStreamDestroy(threadData->stream);
+	printf("Done. There are %d elements divisible by %d\n", *count, threadData->divisor);
+
+	cudaFreeHost(count);
+	cudaFreeHost(divisibles);
+
+	return NULL;
+}
+
 int main(int argc, char **argv)
 {
 	int *data = NULL;
 	int *dataD = NULL;
-	int **divisibles = NULL;
 	int **divisiblesD = NULL;
-	int *counts = NULL;
 	int *countsD = NULL;
 	cudaStream_t *streams = NULL;
 	cudaEvent_t *events = NULL;
+	pthread_t *thread_ids = NULL;
 
 	if (argc < 4) {
 		printf("Must supply length, max value, and a list of numbers\n");
@@ -69,20 +104,19 @@ int main(int argc, char **argv)
 	int numDivisors = argc - 3;
 
 	// List of lists. Each lists hold numbers divisible by the corresponding divisor
-	divisibles = (int**)malloc(numDivisors * sizeof(*divisibles));
-	divisiblesD = (int**)malloc(numDivisors * sizeof(*divisibles));
+	divisiblesD = (int**)malloc(numDivisors * sizeof(*divisiblesD));
 
 	// List of events and streams, one for each divisor
 	streams = (cudaStream_t*)malloc(numDivisors * sizeof(*streams));
 	events = (cudaEvent_t*)malloc(numDivisors * sizeof(*events));
 
+	thread_ids = (pthread_t*)malloc(numDivisors * sizeof(*thread_ids));
+
 	// List of counts; length of each list in `lists`
-	counts = (int*)malloc(numDivisors * sizeof(*counts));
 	countsD = (int*)malloc(numDivisors * sizeof(*countsD));
 
 	// For each divisor, allocate memory to store the numbers divisible by the divisor
 	for (int i = 0; i < numDivisors; i++) {
-		cudaMallocHost(divisibles + i, arraySize);
 		cudaMallocHost(divisiblesD + i, arraySize);
 	}
 
@@ -101,17 +135,19 @@ int main(int argc, char **argv)
 		kernelGetDivisible<<<1, arrayLength, currentDivisor * sizeof(int), streams[i]>>>(divisiblesD[i], countsD + i, dataD, currentDivisor);
 
 		cudaEventCreate(events + i);
+
+		struct threadData *threadData = (struct threadData*)malloc(sizeof(struct threadData));
+		threadData->event = events[i];
+		threadData->stream = streams[i];
+		threadData->countD = countsD + i;
+		threadData->divisiblesD = divisiblesD[i];
+		threadData->divisor = currentDivisor;
+
+		pthread_create(thread_ids + i, NULL, callback, (void*)threadData);
 	}
 
 	for (int i = 0; i < numDivisors; i++) {
-		cudaEventSynchronize(events[i]);
-		printf("Divisor %s is done\n", argv[3 + i]);
-		cudaMemcpyAsync(counts + i, countsD + i, sizeof(int), cudaMemcpyDeviceToHost, streams[i]);
-		cudaMemcpyAsync(divisibles[i], divisiblesD[i], counts[i] * sizeof(int), cudaMemcpyDeviceToHost, streams[i]);
-		cudaStreamSynchronize(streams[i]);
-		cudaEventDestroy(events[i]);
-		cudaStreamDestroy(streams[i]);
-		printf("Done. There are %d elements divisible by %s\n", counts[i], argv[3 + i]);
+		pthread_join(thread_ids[i], NULL);
 	}
 
 	// Free memory
@@ -119,16 +155,12 @@ int main(int argc, char **argv)
 	cudaFree(dataD);
 
 	for (int i = 0; i < numDivisors; i++) {
-		cudaFreeHost(divisibles[i]);
 		cudaFree(divisiblesD[i]);
 	}
 
-	free(divisibles);
 	free(divisiblesD);
-	free(counts);
 	free(countsD);
 	free(streams);
-	free(counts);
 
 	return 0;
 }
