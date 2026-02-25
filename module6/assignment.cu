@@ -55,6 +55,8 @@ int main(int argc, char **argv)
 	int **divisiblesD = NULL;
 	int *counts = NULL;
 	int *countsD = NULL;
+	cudaStream_t *streams = NULL;
+	cudaEvent_t *events = NULL;
 
 	if (argc < 4) {
 		printf("Must supply length, max value, and a list of numbers\n");
@@ -69,6 +71,10 @@ int main(int argc, char **argv)
 	// List of lists. Each lists hold numbers divisible by the corresponding divisor
 	divisibles = (int**)malloc(numDivisors * sizeof(*divisibles));
 	divisiblesD = (int**)malloc(numDivisors * sizeof(*divisibles));
+
+	// List of events and streams, one for each divisor
+	streams = (cudaStream_t*)malloc(numDivisors * sizeof(*streams));
+	events = (cudaEvent_t*)malloc(numDivisors * sizeof(*events));
 
 	// List of counts; length of each list in `lists`
 	counts = (int*)malloc(numDivisors * sizeof(*counts));
@@ -90,14 +96,22 @@ int main(int argc, char **argv)
 	for (int i = 0; i < numDivisors; i++) {
 		int currentDivisor = atoi(argv[3 + i]);
 
-		kernelGetDivisible<<<1, arrayLength, currentDivisor * sizeof(int)>>>(divisiblesD[i], countsD + i, dataD, currentDivisor);
+		cudaStreamCreate(streams + i);
 
-		cudaDeviceSynchronize();
-		cudaMemcpy(counts + i, countsD + i, sizeof(int), cudaMemcpyDeviceToHost);
-		cudaMemcpy(divisibles[i], divisiblesD[i], counts[i] * sizeof(int), cudaMemcpyDeviceToHost);
+		kernelGetDivisible<<<1, arrayLength, currentDivisor * sizeof(int), streams[i]>>>(divisiblesD[i], countsD + i, dataD, currentDivisor);
 
-		printf("Number divisible by %d: %d\n", currentDivisor, counts[i]);
-		printArray(divisibles[i], counts[i], "Divisible");
+		cudaEventCreate(events + i);
+	}
+
+	for (int i = 0; i < numDivisors; i++) {
+		cudaEventSynchronize(events[i]);
+		printf("Divisor %s is done\n", argv[3 + i]);
+		cudaMemcpyAsync(counts + i, countsD + i, sizeof(int), cudaMemcpyDeviceToHost, streams[i]);
+		cudaMemcpyAsync(divisibles[i], divisiblesD[i], counts[i] * sizeof(int), cudaMemcpyDeviceToHost, streams[i]);
+		cudaStreamSynchronize(streams[i]);
+		cudaEventDestroy(events[i]);
+		cudaStreamDestroy(streams[i]);
+		printf("Done. There are %d elements divisible by %s\n", counts[i], argv[3 + i]);
 	}
 
 	// Free memory
@@ -113,6 +127,8 @@ int main(int argc, char **argv)
 	free(divisiblesD);
 	free(counts);
 	free(countsD);
+	free(streams);
+	free(counts);
 
 	return 0;
 }
