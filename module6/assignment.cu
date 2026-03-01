@@ -169,6 +169,9 @@ int main(int argc, char **argv)
 		arg->divisiblesD = divisiblesD[i];  // Where GPU will put all the ints divisible by `currentDivisor`
 		arg->divisor = currentDivisor;
 
+		// I have realized that `cudaLaunchHostFunc` would probably fit a lot better here, but I
+		// forgot about the function, and I guess I was kind of curious what the behavior would be
+		// if I used device memory and CUDA functions in a thread, which unsurprisingly you can do.
 		pthread_create(thread_ids + i, NULL, callback, (void*)arg);  // Launch thread
 	}
 
