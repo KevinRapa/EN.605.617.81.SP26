@@ -1,14 +1,16 @@
 
 #include <field.h>
 #include <perlin.h>
+#include <crc64.h>
 
 #include <unordered_set>
-#include <functional>
 
 long createFieldSeed(long worldSeed, int x, int y)
 {
-	std::hash<long> hasher;
-	return hasher(worldSeed) ^ hasher(static_cast<long>(x)) ^ hasher(static_cast<long>(y));
+	long bytes[] = { worldSeed, static_cast<long>(x), static_cast<long>(y) };
+	DWORD64 ret = 0;
+	GetCRC64(ret, reinterpret_cast<const unsigned char *>(bytes), sizeof(bytes));
+	return ret;
 }
 
 pixel_t *fieldAlloc()
@@ -18,7 +20,7 @@ pixel_t *fieldAlloc()
 
 int createField(pixel_t *fieldOut, long seed, int x, int y)
 {
-	if (NULL == fieldOut) {
+	if (nullptr == fieldOut) {
 		return FAILURE;
 	}
 

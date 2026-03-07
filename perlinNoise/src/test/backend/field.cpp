@@ -7,10 +7,16 @@ bool createFieldSeedTest(long worldSeed, int x, int y)
 {
 	long seed1 = createFieldSeed(worldSeed, x, y);
 	long seed2 = createFieldSeed(worldSeed, x, y);
+
 	bool pass = seed1 == seed2;
 
-	printf("%s (%ld, %d, %d): %s (%ld, %ld)\n",
-	       __func__, worldSeed, x, y, pass ? "PASS" : "FAIL", seed1, seed2);
+	if (x != y) {
+		long seed3 = createFieldSeed(worldSeed, y, x);
+		pass = seed2 != seed3;
+	}
+
+	printf("%s (%ld, %d, %d): %s\n",
+	       __func__, worldSeed, x, y, pass ? "PASS" : "FAIL");
 
 	return pass;
 }
