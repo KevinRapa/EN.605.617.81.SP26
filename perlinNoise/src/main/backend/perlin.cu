@@ -26,7 +26,7 @@ __global__ void generateVectorField(float *vectorsOut, long seed, long xCoord, l
 	int cornerX = xCoord + threadIdx.x;
 	int cornerY = yCoord + threadIdx.y;
 
-	vectorsOut[(cornerX * blockDim.y) + cornerY] = generateVector(seed, cornerX, cornerY);
+	vectorsOut[(threadIdx.y * blockDim.x) + threadIdx.x] = generateVector(seed, cornerX, cornerY);
 }
 
 int perlinInit()
