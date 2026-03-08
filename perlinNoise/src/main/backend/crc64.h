@@ -4,6 +4,10 @@
 
 typedef unsigned long long DWORD64;
 
+extern const DWORD64 crctab64[256];
+
+#define CRC_INIT 0xFFFFFFFFFFFFFFFFULL
+
 /**
  * CRC64 function
  *

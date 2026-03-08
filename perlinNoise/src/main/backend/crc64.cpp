@@ -103,13 +103,14 @@ const DWORD64 crctab64[256] = {
 
 static void InitCRC64(DWORD64 &crc)
 {
-	crc = 0xFFFFFFFFFFFFFFFFULL;
+	crc = CRC_INIT;
 }
 
 void GetCRC64(DWORD64 &crc, const unsigned char *cp, unsigned long length)
 {
 	while (length--) {
-		crc = crctab64[(crc ^ *(cp++)) & 0xff] ^ (crc >> 8);
+		crc = crctab64[(crc ^ *cp) & 0xff] ^ (crc >> 8);
+		cp++;
 	}
 }
  

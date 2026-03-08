@@ -13,7 +13,7 @@ int main(int argc, char *argv[])
 	long seed = atol(argv[1]);	
 
 	pixel_t *field = fieldAlloc();
-	int success = createField(field, seed, 0, 0);
+	int success = createField(field, seed, 0, 0, 4);
 	printf("Return value: %d\n", success);
 
 	return success;
