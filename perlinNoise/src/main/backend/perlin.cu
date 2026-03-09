@@ -23,10 +23,11 @@ __device__ float generateVector(long worldSeed, long xCoord, long yCoord)
 
 __global__ void generateVectorField(float *vectorsOut, long seed, long xCoord, long yCoord)
 {
-	int cornerX = xCoord + threadIdx.x;
-	int cornerY = yCoord + threadIdx.y;
+	vectorsOut[(threadIdx.y * blockDim.x) + threadIdx.x] = generateVector(seed, xCoord + threadIdx.x, yCoord + threadIdx.y);
+}
 
-	vectorsOut[(threadIdx.y * blockDim.x) + threadIdx.x] = generateVector(seed, cornerX, cornerY);
+__global__ void generatePerlinNoise(float *noiseOut, float *vectorMap)
+{
 }
 
 int perlinInit()
@@ -42,14 +43,28 @@ int perlinInit()
 
 int perlin(float *pixelsOut, long seed, long xCoord, long yCoord, int numChunksXY, int numPixelsXY, unsigned octaves)
 {
-	float *vectorMap;
+	float *vectorMapD;
+	float *pixelsD;
+
+	int numPixels = numChunksXY * numChunksXY * numPixelsXY * numPixelsXY;
+
 	dim3 vectorFieldGridSize(1, 1);
 	dim3 vectorFieldBlockSize(numChunksXY + 1, numChunksXY + 1);
 
-	// Plus 1 here because each float is a vector at a corner of a chunk, so there are numChunksXY+1 corners in each dimension
-	cudaMalloc(&vectorMap, (numChunksXY + 1) * (numChunksXY + 1) * sizeof(*vectorMap));
+	dim3 perlinGridDim(numChunksXY, numChunksXY);
+	dim3 perlinChunkDim(numPixelsXY, numPixelsXY);
 
-	generateVectorField<<<vectorFieldGridSize, vectorFieldBlockSize>>>(vectorMap, seed, xCoord, yCoord);
+	// Plus 1 here because each float is a vector at a corner of a chunk, so there are numChunksXY+1 corners in each dimension
+	cudaMalloc(&vectorMapD, (numChunksXY + 1) * (numChunksXY + 1) * sizeof(*vectorMapD));
+	cudaMalloc(&pixelsD, numPixels * sizeof(*pixelsD));
+
+	generateVectorField<<<vectorFieldGridSize, vectorFieldBlockSize>>>(vectorMapD, seed, xCoord, yCoord);
+	generatePerlinNoise<<<perlinGridDim, perlinChunkDim>>>(pixelsD, vectorMapD);
+
+	cudaMemcpy(pixelsOut, pixelsD, numPixels * sizeof(*pixelsD), cudaMemcpyDeviceToHost);
+
+	cudaFree(vectorMapD);
+	cudaFree(pixelsD);
 
 	return EXIT_SUCCESS;
 }
