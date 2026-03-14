@@ -3,6 +3,7 @@
 #include "perlin.h"
 
 #include <cmath>
+#include <iostream>
 
 __constant__ DWORD64 crctab64Device[256];
 
@@ -26,8 +27,40 @@ __global__ void generateVectorField(float *vectorsOut, long seed, long xCoord, l
 	vectorsOut[(threadIdx.y * blockDim.x) + threadIdx.x] = generateVector(seed, xCoord + threadIdx.x, yCoord + threadIdx.y);
 }
 
+__device__ float computeDotProduct(float horizontalOffsetMagnitude, float verticalOffsetMagnitude, float gradientVectorAngle)
+{
+	return (horizontalOffsetMagnitude * cosf(gradientVectorAngle)) + (verticalOffsetMagnitude * sinf(gradientVectorAngle));
+}
+
 __global__ void generatePerlinNoise(float *noiseOut, float *vectorMap)
 {
+	int chunkIdxX = blockIdx.x;
+	int chunkIdxY = blockIdx.y;
+	int pixelIdxX = threadIdx.x;
+	int pixelIdxY = threadIdx.y;
+	int numChunksX = gridDim.x + 1;
+
+	float thetaUL = vectorMap[chunkIdxY * numChunksX + chunkIdxX];
+	float thetaUR = vectorMap[chunkIdxY * numChunksX + (chunkIdxX + 1)];
+	float thetaLL = vectorMap[(chunkIdxY + 1) * numChunksX + chunkIdxX];
+	float thetaLR = vectorMap[(chunkIdxY + 1) * numChunksX + (chunkIdxX + 1)];
+
+	float offsetFromLeftEdge = -pixelIdxX;
+	float offsetFromTopEdge = pixelIdxY;
+	float offsetFromRightEdge = static_cast<int>(blockDim.x) - pixelIdxX - 1.0;
+	float offsetFromBottomEdge = -(static_cast<int>(blockDim.y) - pixelIdxY - 1.0);
+
+#if 0
+	printf("BLOCK(%d,%d) PIXEL(%d,%d)  UL:%f  UR:%f  LL:%f  LR:%f\n"
+	       "offFromLeft:%f   offFromRight:%f  offFromTop:%f  offFromBottom:%f\n", 
+               blockIdx.x, blockIdx.y, pixelIdxX, pixelIdxY, thetaUL, thetaUR, thetaLL, thetaLR,
+	       offsetFromLeftEdge, offsetFromRightEdge, offsetFromTopEdge, offsetFromBottomEdge);
+#endif
+
+	float dotProductUL = computeDotProduct(offsetFromLeftEdge, offsetFromTopEdge, thetaUL);
+	float dotProductUR = computeDotProduct(offsetFromRightEdge, offsetFromTopEdge, thetaUR);
+	float dotProductLL = computeDotProduct(offsetFromLeftEdge, offsetFromBottomEdge, thetaLL);
+	float dotProductLR = computeDotProduct(offsetFromRightEdge, offsetFromBottomEdge, thetaLR);
 }
 
 int perlinInit()

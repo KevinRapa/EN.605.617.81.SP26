@@ -4,6 +4,7 @@
 
 __device__ float generateVector(long worldSeed, long xCoord, long yCoord);
 __global__ void generateVectorField(float *vectorsOut, long seed, long xCoord, long yCoord);
+__global__ void generatePerlinNoise(float *noiseOut, float *vectorMap);
 
 __global__ void generateVectorCall(float* out, long seed, long x, long y)
 {
@@ -85,10 +86,36 @@ void generateVectorFieldTest()
 	free(mapDown);
 }
 
+void generatePerlinNoiseTest()
+{
+	float vectorField[5][5] = {
+		{ 0.00, 0.01, 0.02, 0.03, 0.04 },
+		{ 0.10, 0.11, 0.12, 0.13, 0.14 },
+		{ 0.20, 0.21, 0.22, 0.23, 0.24 },
+		{ 0.30, 0.31, 0.32, 0.33, 0.34 },
+		{ 0.40, 0.41, 0.42, 0.43, 0.44 },
+	};
+	float *vectorFieldD = nullptr;
+
+	float noiseOut[8][8] = { 0 };
+	float *noiseOutD = nullptr;
+
+	cudaMalloc(&vectorFieldD, sizeof(vectorField));
+	cudaMalloc(&noiseOutD, sizeof(noiseOut));
+
+	cudaMemcpy(vectorFieldD, vectorField, sizeof(vectorField), cudaMemcpyHostToDevice);
+
+	generatePerlinNoise<<<dim3(4, 4), dim3(2, 2)>>>(noiseOutD, vectorFieldD);
+
+	cudaFree(vectorFieldD);
+	cudaFree(noiseOutD);
+}
+
 int main()
 {
 	perlinInit();
 
 	generateVectorTest();
 	generateVectorFieldTest();
+	generatePerlinNoiseTest();
 }
