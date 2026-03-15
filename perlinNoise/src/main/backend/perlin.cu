@@ -7,6 +7,11 @@
 
 __constant__ DWORD64 crctab64Device[256];
 
+static bool isPowerOfTwo(unsigned x)
+{
+	return x && !(x & (x-1));
+}
+
 __device__ float generateVector(long worldSeed, long xCoord, long yCoord)
 {
 	long variables[] = { worldSeed, xCoord, yCoord };
@@ -73,9 +78,8 @@ __global__ void generatePerlinNoise(float *noiseOut, float *vectorMap)
 
 	float interpBottom = linearInterpolate(percentLR, dotProductLL, dotProductLR);
 	float interpTop = linearInterpolate(percentLR, dotProductUL, dotProductUR);
-	float interp = linearInterpolate(percentUD, interpTop, interpBottom);
 
-	noiseOut[globalThreadIdx] = interp;
+	noiseOut[globalThreadIdx] = linearInterpolate(percentUD, interpTop, interpBottom);
 }
 
 int perlinInit()
@@ -87,6 +91,15 @@ int perlin(float *pixelsOut, long seed, long xCoord, long yCoord, int numChunksX
 {
 	float *vectorMapD;
 	float *pixelsD;
+
+	if (!isPowerOfTwo(numChunksXY)) {
+		fprintf(stderr, "%s: grid dimension must be a power of 2\n", __func__);
+		return EXIT_FAILURE;
+	}
+	if (!isPowerOfTwo(numPixelsXY)) {
+		fprintf(stderr, "%s: chunk dimension must be a power of 2\n", __func__);
+		return EXIT_FAILURE;
+	}
 
 	int numPixels = numChunksXY * numChunksXY * numPixelsXY * numPixelsXY;
 

@@ -7,9 +7,12 @@
 
 static bool perlinInitialized = false;
 
+static const unsigned FIELD_DIM = FIELD_DIM_MAX;
+static const unsigned CHUNK_DIM = CHUNK_DIM_MAX;
+
 pixel_t *fieldAlloc()
 {
-	return new pixel_t[FIELD_DIM_MAX * FIELD_DIM_MAX * CHUNK_DIM_MAX * CHUNK_DIM_MAX];
+	return new pixel_t[FIELD_DIM * FIELD_DIM * CHUNK_DIM * CHUNK_DIM];
 }
 
 int createField(pixel_t *fieldOut, long seed, long x, long y, unsigned octaves)
@@ -28,11 +31,11 @@ int createField(pixel_t *fieldOut, long seed, long x, long y, unsigned octaves)
 		}
 	}
 
-	int ret = perlin(fieldOut, seed, x, y, FIELD_DIM_MAX, CHUNK_DIM_MAX, octaves);
+	int ret = perlin(fieldOut, seed, x, y, FIELD_DIM, CHUNK_DIM, octaves);
 
 #if 0
-	for (int i = 0; i < FIELD_DIM_MAX *FIELD_DIM_MAX * CHUNK_DIM_MAX * CHUNK_DIM_MAX; i++) {
-		if (i % (FIELD_DIM_MAX * CHUNK_DIM_MAX) == 0) printf("\n");
+	for (int i = 0; i < FIELD_DIM *FIELD_DIM * CHUNK_DIM * CHUNK_DIM; i++) {
+		if (i % (FIELD_DIM * CHUNK_DIM) == 0) printf("\n");
 		printf("% 2.3f, ", fieldOut[i]);
 	}
 #endif
