@@ -3,6 +3,7 @@
 #include "perlin.h"
 
 #include <cstdlib>
+#include <iostream>
 
 static bool perlinInitialized = false;
 
@@ -14,16 +15,29 @@ pixel_t *fieldAlloc()
 int createField(pixel_t *fieldOut, long seed, long x, long y, unsigned octaves)
 {
 	if (nullptr == fieldOut) {
+		fprintf(stderr, "%s: input field memory is null\n", __func__);
 		return EXIT_FAILURE;
 	}
 
 	if (!perlinInitialized) {
-		if (!perlinInit()) {
+		int code = perlinInit();
+
+		if (code != 0) {
+			fprintf(stderr, "%s: failed to initialize Perlin Generator (%d)\n", __func__, code);
 			return EXIT_FAILURE;
 		}
 	}
 
-	return perlin(fieldOut, seed, x, y, FIELD_DIM_MAX, CHUNK_DIM_MAX, octaves);
+	int ret = perlin(fieldOut, seed, x, y, FIELD_DIM_MAX, CHUNK_DIM_MAX, octaves);
+
+#if 0
+	for (int i = 0; i < FIELD_DIM_MAX *FIELD_DIM_MAX * CHUNK_DIM_MAX * CHUNK_DIM_MAX; i++) {
+		if (i % (FIELD_DIM_MAX * CHUNK_DIM_MAX) == 0) printf("\n");
+		printf("% 2.3f, ", fieldOut[i]);
+	}
+#endif
+
+	return ret;
 }
 
 void fieldFree(pixel_t *field)

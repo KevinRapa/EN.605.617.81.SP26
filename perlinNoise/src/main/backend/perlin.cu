@@ -32,6 +32,11 @@ __device__ float computeDotProduct(float horizontalOffsetMagnitude, float vertic
 	return (horizontalOffsetMagnitude * cosf(gradientVectorAngle)) + (verticalOffsetMagnitude * sinf(gradientVectorAngle));
 }
 
+__device__ float linearInterpolate(float percent, float n1, float n2)
+{
+	return (1.0 - percent) * n1 + percent * n2;
+}
+
 __global__ void generatePerlinNoise(float *noiseOut, float *vectorMap)
 {
 	int chunkIdxX = blockIdx.x;
@@ -39,6 +44,7 @@ __global__ void generatePerlinNoise(float *noiseOut, float *vectorMap)
 	int pixelIdxX = threadIdx.x;
 	int pixelIdxY = threadIdx.y;
 	int numChunksX = gridDim.x + 1;
+	int globalThreadIdx = ((blockIdx.y * blockDim.y + threadIdx.y) * gridDim.x * blockDim.x) + (blockIdx.x * blockDim.x + threadIdx.x);
 
 	float thetaUL = vectorMap[chunkIdxY * numChunksX + chunkIdxX];
 	float thetaUR = vectorMap[chunkIdxY * numChunksX + (chunkIdxX + 1)];
@@ -61,17 +67,20 @@ __global__ void generatePerlinNoise(float *noiseOut, float *vectorMap)
 	float dotProductUR = computeDotProduct(offsetFromRightEdge, offsetFromTopEdge, thetaUR);
 	float dotProductLL = computeDotProduct(offsetFromLeftEdge, offsetFromBottomEdge, thetaLL);
 	float dotProductLR = computeDotProduct(offsetFromRightEdge, offsetFromBottomEdge, thetaLR);
+
+	float percentLR = static_cast<float>(threadIdx.x) / static_cast<float>(blockDim.x);
+	float percentUD = (static_cast<float>(blockDim.y) - static_cast<float>(threadIdx.y)) / static_cast<float>(blockDim.y);
+
+	float interpBottom = linearInterpolate(percentLR, dotProductLL, dotProductLR);
+	float interpTop = linearInterpolate(percentLR, dotProductUL, dotProductUR);
+	float interp = linearInterpolate(percentUD, interpTop, interpBottom);
+
+	noiseOut[globalThreadIdx] = interp;
 }
 
 int perlinInit()
 {
-	cudaError_t ret = cudaMemcpyToSymbol(crctab64Device, crctab64, sizeof(crctab64));
-
-	if (ret != cudaSuccess) {
-		return EXIT_FAILURE;
-	}
-
-	return EXIT_SUCCESS;
+	return cudaMemcpyToSymbol(crctab64Device, crctab64, sizeof(crctab64));
 }
 
 int perlin(float *pixelsOut, long seed, long xCoord, long yCoord, int numChunksXY, int numPixelsXY, unsigned octaves)

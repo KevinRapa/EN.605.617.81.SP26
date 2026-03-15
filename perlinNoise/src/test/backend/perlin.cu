@@ -1,6 +1,7 @@
 
 #include <perlin.h>
 #include <cassert>
+#include <iostream>
 
 __device__ float generateVector(long worldSeed, long xCoord, long yCoord);
 __global__ void generateVectorField(float *vectorsOut, long seed, long xCoord, long yCoord);
@@ -106,6 +107,15 @@ void generatePerlinNoiseTest()
 	cudaMemcpy(vectorFieldD, vectorField, sizeof(vectorField), cudaMemcpyHostToDevice);
 
 	generatePerlinNoise<<<dim3(4, 4), dim3(2, 2)>>>(noiseOutD, vectorFieldD);
+
+	cudaMemcpy(noiseOut, noiseOutD, sizeof(noiseOut), cudaMemcpyDeviceToHost);
+
+	for ( int i = 0; i < 8; i++) {
+		for (int j = 0; j < 8; j++) {
+			printf("% 2.3f, ", noiseOut[i][j]);
+		}
+		printf("\n");
+	}
 
 	cudaFree(vectorFieldD);
 	cudaFree(noiseOutD);
