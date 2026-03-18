@@ -1,37 +1,35 @@
 
-#include "crc64.h"
 #include "perlin.h"
 
 #include <cmath>
 #include <iostream>
+
+#include <curand_kernel.h>
 #include <thrust/device_vector.h>
 #include <thrust/host_vector.h>
-
-__constant__ DWORD64 crctab64Device[256];
 
 static bool isPowerOfTwo(unsigned x)
 {
 	return x && !(x & (x-1));
 }
 
-__device__ float generateVector(long worldSeed, long xCoord, long yCoord)
+__device__ float generateVector(long worldSeed, long xCoord, long yCoord, curandStateXORWOW_t *state)
 {
-	long variables[] = { worldSeed, xCoord, yCoord };
-	char *bytes = reinterpret_cast<char *>(variables);
-	DWORD64 crc = CRC_INIT;
 
-	for (int i = 0; i < sizeof(variables); i++) {
-		crc = crctab64Device[(crc ^ bytes[i]) & 0xff] ^ (crc >> 8);
-	}
+	int heading = curand(state);
 
-	float radians = static_cast<float>(crc % 360) * (M_PI / 180.0);
+	float radians = static_cast<float>(heading % 360) * (M_PI / 180.0);
 
 	return radians;
 }
 
 __global__ void generateVectorField(float *vectorsOut, long seed, long xCoord, long yCoord)
 {
-	vectorsOut[(threadIdx.y * blockDim.x) + threadIdx.x] = generateVector(seed, xCoord + threadIdx.x, yCoord + threadIdx.y);
+	curandStateXORWOW_t state;
+
+	curand_init(seed, (threadIdx.y * blockDim.x) + threadIdx.x, 0, &state);
+
+	vectorsOut[(threadIdx.y * blockDim.x) + threadIdx.x] = generateVector(seed, xCoord + threadIdx.x, yCoord + threadIdx.y, &state);
 }
 
 __device__ float computeDotProduct(float horizontalOffsetMagnitude, float verticalOffsetMagnitude, float gradientVectorAngle)
@@ -86,7 +84,7 @@ __global__ void generatePerlinNoise(float *noiseOut, float *vectorMap)
 
 int perlinInit()
 {
-	return cudaMemcpyToSymbol(crctab64Device, crctab64, sizeof(crctab64));
+	return 0;
 }
 
 int perlin(float *pixelsOut, long seed, long xCoord, long yCoord, int numChunksXY, int numPixelsXY, unsigned octaves)
