@@ -4,6 +4,8 @@
 
 #include <cmath>
 #include <iostream>
+#include <thrust/device_vector.h>
+#include <thrust/host_vector.h>
 
 __constant__ DWORD64 crctab64Device[256];
 
@@ -89,9 +91,6 @@ int perlinInit()
 
 int perlin(float *pixelsOut, long seed, long xCoord, long yCoord, int numChunksXY, int numPixelsXY, unsigned octaves)
 {
-	float *vectorMapD;
-	float *pixelsD;
-
 	if (!isPowerOfTwo(numChunksXY)) {
 		fprintf(stderr, "%s: grid dimension must be a power of 2\n", __func__);
 		return EXIT_FAILURE;
@@ -110,16 +109,13 @@ int perlin(float *pixelsOut, long seed, long xCoord, long yCoord, int numChunksX
 	dim3 perlinChunkDim(numPixelsXY, numPixelsXY);
 
 	// Plus 1 here because each float is a vector at a corner of a chunk, so there are numChunksXY+1 corners in each dimension
-	cudaMalloc(&vectorMapD, (numChunksXY + 1) * (numChunksXY + 1) * sizeof(*vectorMapD));
-	cudaMalloc(&pixelsD, numPixels * sizeof(*pixelsD));
+	thrust::device_vector<float> vectorMapD((numChunksXY + 1) * (numChunksXY + 1));
+	thrust::device_vector<float> pixelsD(numPixels);
 
-	generateVectorField<<<vectorFieldGridSize, vectorFieldBlockSize>>>(vectorMapD, seed, xCoord, yCoord);
-	generatePerlinNoise<<<perlinGridDim, perlinChunkDim>>>(pixelsD, vectorMapD);
+	generateVectorField<<<vectorFieldGridSize, vectorFieldBlockSize>>>(thrust::raw_pointer_cast(vectorMapD.data()), seed, xCoord, yCoord);
+	generatePerlinNoise<<<perlinGridDim, perlinChunkDim>>>(thrust::raw_pointer_cast(pixelsD.data()), thrust::raw_pointer_cast(vectorMapD.data()));
 
-	cudaMemcpy(pixelsOut, pixelsD, numPixels * sizeof(*pixelsD), cudaMemcpyDeviceToHost);
-
-	cudaFree(vectorMapD);
-	cudaFree(pixelsD);
+	thrust::copy(pixelsD.begin(), pixelsD.end(), pixelsOut);
 
 	return EXIT_SUCCESS;
 }
