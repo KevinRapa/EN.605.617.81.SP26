@@ -33,7 +33,7 @@ int createField(pixel_t *fieldOut, long seed, long x, long y, unsigned octaves)
 
 	int ret = perlin(fieldOut, seed, x, y, FIELD_DIM, CHUNK_DIM, octaves);
 
-#if 0
+#if 1
 	for (int i = 0; i < FIELD_DIM *FIELD_DIM * CHUNK_DIM * CHUNK_DIM; i++) {
 		if (i % (FIELD_DIM * CHUNK_DIM) == 0) printf("\n");
 		printf("% 2.3f, ", fieldOut[i]);
