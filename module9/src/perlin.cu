@@ -13,30 +13,42 @@ static bool isPowerOfTwo(unsigned x)
 	return x && !(x & (x-1));
 }
 
-__device__ float generateVector(long worldSeed, long xCoord, long yCoord, curandStateXORWOW_t *state)
+// Generates a random 2D vector. Returns direction of vector from (0, 2*pi]; zero is excluded in curand_uniform
+__device__ float generateVector(curandStateXORWOW_t *state)
 {
+	// Use curand_uniform so that any vector heading is equally likely. Interpret the value as a percent of 2*pi
+	float percentOf2Pi = curand_uniform(state);
 
-	int heading = curand(state);
-
-	float radians = static_cast<float>(heading % 360) * (M_PI / 180.0);
+	float radians = (2.0 * M_PI) * percentOf2Pi;
 
 	return radians;
 }
 
+// Creates a grid of random 2D vectors. Output must be the same given the same seed, xCoord, and yCoord
+// vectorsOut - output grid
+// seed   -     global seed for the generator
+// xCoord -     X-coordinate of top-left corner of the grid we are generating
+// yCoord -     Y-coordinate of top-left corner of the grid we are generating
 __global__ void generateVectorField(float *vectorsOut, long seed, long xCoord, long yCoord)
 {
 	curandStateXORWOW_t state;
 
-	curand_init(seed, (threadIdx.y * blockDim.x) + threadIdx.x, 0, &state);
+	long globalThreadX = threadIdx.x + xCoord;
+	long globalThreadY = threadIdx.y + yCoord;
+	long seedModifier = (globalThreadX << 32) | globalThreadY;
 
-	vectorsOut[(threadIdx.y * blockDim.x) + threadIdx.x] = generateVector(seed, xCoord + threadIdx.x, yCoord + threadIdx.y, &state);
+	curand_init(seed ^ seedModifier, (threadIdx.y * blockDim.x) + threadIdx.x, 0, &state);
+
+	vectorsOut[(threadIdx.y * blockDim.x) + threadIdx.x] = generateVector(&state);
 }
 
+// Helper function for computing the dot-product of a gradient vector and an offset vector
 __device__ float computeDotProduct(float horizontalOffsetMagnitude, float verticalOffsetMagnitude, float gradientVectorAngle)
 {
 	return (horizontalOffsetMagnitude * cosf(gradientVectorAngle)) + (verticalOffsetMagnitude * sinf(gradientVectorAngle));
 }
 
+// Simple linear interpolation function for the final step in generating perlin noise
 __device__ float linearInterpolate(float percent, float n1, float n2)
 {
 	return (1.0 - percent) * n1 + percent * n2;
@@ -61,13 +73,6 @@ __global__ void generatePerlinNoise(float *noiseOut, float *vectorMap)
 	float offsetFromRightEdge = static_cast<int>(blockDim.x) - pixelIdxX - 1.0;
 	float offsetFromBottomEdge = -(static_cast<int>(blockDim.y) - pixelIdxY - 1.0);
 
-#if 0
-	printf("BLOCK(%d,%d) PIXEL(%d,%d)  UL:%f  UR:%f  LL:%f  LR:%f\n"
-	       "offFromLeft:%f   offFromRight:%f  offFromTop:%f  offFromBottom:%f\n", 
-               blockIdx.x, blockIdx.y, pixelIdxX, pixelIdxY, thetaUL, thetaUR, thetaLL, thetaLR,
-	       offsetFromLeftEdge, offsetFromRightEdge, offsetFromTopEdge, offsetFromBottomEdge);
-#endif
-
 	float dotProductUL = computeDotProduct(offsetFromLeftEdge, offsetFromTopEdge, thetaUL);
 	float dotProductUR = computeDotProduct(offsetFromRightEdge, offsetFromTopEdge, thetaUR);
 	float dotProductLL = computeDotProduct(offsetFromLeftEdge, offsetFromBottomEdge, thetaLL);
@@ -82,11 +87,21 @@ __global__ void generatePerlinNoise(float *noiseOut, float *vectorMap)
 	noiseOut[globalThreadIdx] = linearInterpolate(percentUD, interpTop, interpBottom);
 }
 
+// Nothing to do for initializing the generator for now
 int perlinInit()
 {
 	return 0;
 }
 
+// perlin noise generator function
+// Calculates a grid of perlin noise. The grid is anchored at the top-left corner
+// pixelsOut   - output grid. The size is numChunksXY^2 * numPixelsXY^2
+// seed        - global seed for the perlin noise generator
+// xCoord      - X-coordinate of the top-left corner of the grid
+// yCoord      - Y-coordinate of the top-right corner of the grid
+// numChunksXY - Number of chunks
+// numPixelsXY - Number of "pixels" inside of each chunk
+// octaves     - number of octaves for the perlin noise. Unimplemented feature.
 int perlin(float *pixelsOut, long seed, long xCoord, long yCoord, int numChunksXY, int numPixelsXY, unsigned octaves)
 {
 	if (!isPowerOfTwo(numChunksXY)) {
