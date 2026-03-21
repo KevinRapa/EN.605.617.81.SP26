@@ -1,3 +1,10 @@
+/**
+ * Kevin Rapa
+ * Perlin noise generator
+ * This program generates a 256 x 256 grid of perlin noise and prints it to standard output
+ * curand is used to generate a uniform distribution of random values to create gradient vectors
+ * The thrust library is used for host-side memory management
+ */
 
 #include <iostream>
 
