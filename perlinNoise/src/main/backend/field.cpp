@@ -55,7 +55,7 @@ int createField(pixel_t *fieldOut, long seed, unsigned pixelWidth, long x, long 
 
 	int ret = perlin(fieldOut, seed, x, y, pixelWidth, pixelWidth, octaves);
 
-#if 1
+#if 0
 	for (int i = 0; i < pixelWidth * pixelWidth; i++) {
 		if (i % pixelWidth == 0) printf("\n");
 		printf("% 2.3f, ", fieldOut[i]);
