@@ -4,7 +4,6 @@
 
 #include <cstdlib>
 #include <iostream>
-#include <limits>
 
 static bool perlinInitialized = false;
 
@@ -28,31 +27,6 @@ static bool validateSize(unsigned pixelWidth)
 	}
 
 	return true;
-}
-
-void convertNoiseToUchar3(uchar3 *pixels, const float *noise, unsigned pixelWidth)
-{
-	float minFloat = std::numeric_limits<float>::max();
-	float maxFloat = std::numeric_limits<float>::lowest();
-	float maxAlpha = std::numeric_limits<unsigned char>::max();
-
-	for (int i = 0; i < pixelWidth * pixelWidth; i++) {
-		if (noise[i] < minFloat) {
-			minFloat = noise[i];
-		}
-		if (noise[i] > maxFloat) {
-			maxFloat = noise[i];
-		}
-	}
-
-	maxFloat -= minFloat;
-
-	for (int i = 0; i < pixelWidth * pixelWidth; i++) {
-		float percentOfMax = (noise[i] - minFloat) / maxFloat;
-
-		unsigned char alpha = static_cast<unsigned char>(maxAlpha * percentOfMax);
-		pixels[i] = make_uchar3(alpha, alpha, alpha);
-	}
 }
 
 pixel_t *fieldAlloc(unsigned pixelWidth)
@@ -79,20 +53,14 @@ int createField(pixel_t *fieldOut, long seed, unsigned pixelWidth, long x, long 
 		}
 	}
 
-	float *noise = new float[pixelWidth * pixelWidth];
-
-	int ret = perlin(noise, seed, x, y, pixelWidth, pixelWidth, octaves);
-
-	convertNoiseToUchar3(fieldOut, noise, pixelWidth);
+	int ret = perlin(fieldOut, seed, x, y, pixelWidth, pixelWidth, octaves);
 
 #if 1
 	for (int i = 0; i < pixelWidth * pixelWidth; i++) {
 		if (i % pixelWidth == 0) printf("\n");
-		printf("% 2.3f, ", noise[i]);
+		printf("% 2.3f, ", fieldOut[i]);
 	}
 #endif
-
-	delete[] noise;
 
 	return ret;
 }
