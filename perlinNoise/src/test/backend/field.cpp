@@ -5,7 +5,7 @@
 
 bool fieldAllocTest()
 {
-	pixel_t *grid = fieldAlloc();
+	pixel_t *grid = fieldAlloc(256);
 
 	bool pass = NULL != grid;
 	

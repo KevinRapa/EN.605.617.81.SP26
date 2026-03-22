@@ -7,18 +7,43 @@
 
 static bool perlinInitialized = false;
 
-static const unsigned FIELD_DIM = FIELD_DIM_MAX;
-static const unsigned CHUNK_DIM = CHUNK_DIM_MAX;
+static const unsigned FIELD_PIXEL_WIDTH_MAX = 1024;
 
-pixel_t *fieldAlloc()
+static const unsigned FIELD_DIM = 8;
+static const unsigned CHUNK_DIM = 32;
+
+static bool isPowerOfTwo(unsigned x)
 {
-	return new pixel_t[FIELD_DIM * FIELD_DIM * CHUNK_DIM * CHUNK_DIM];
+	return x && !(x & (x-1));
 }
 
-int createField(pixel_t *fieldOut, long seed, long x, long y, unsigned octaves)
+static bool validateSize(unsigned pixelWidth)
 {
-	if (nullptr == fieldOut) {
-		fprintf(stderr, "%s: input field memory is null\n", __func__);
+	if (!isPowerOfTwo(pixelWidth)) {
+		fprintf(stderr, "Field dimension must be a power of 2\n");
+		return false;
+	}
+
+	if (pixelWidth > FIELD_PIXEL_WIDTH_MAX) {
+		fprintf(stderr, "Field dimension is too large. Max is %u\n", FIELD_PIXEL_WIDTH_MAX);
+		return false;
+	}
+
+	return true;
+}
+
+pixel_t *fieldAlloc(unsigned pixelWidth)
+{
+	if (!validateSize(pixelWidth)) {
+		return nullptr;
+	}
+
+	return new pixel_t[pixelWidth * pixelWidth];
+}
+
+int createField(pixel_t *fieldOut, long seed, unsigned pixelWidth, long x, long y, unsigned octaves)
+{
+	if (!validateSize(pixelWidth)) {
 		return EXIT_FAILURE;
 	}
 
@@ -31,11 +56,11 @@ int createField(pixel_t *fieldOut, long seed, long x, long y, unsigned octaves)
 		}
 	}
 
-	int ret = perlin(fieldOut, seed, x, y, FIELD_DIM, CHUNK_DIM, octaves);
+	int ret = perlin(fieldOut, seed, x, y, pixelWidth, pixelWidth, octaves);
 
-#if 0
-	for (int i = 0; i < FIELD_DIM *FIELD_DIM * CHUNK_DIM * CHUNK_DIM; i++) {
-		if (i % (FIELD_DIM * CHUNK_DIM) == 0) printf("\n");
+#if 1
+	for (int i = 0; i < pixelWidth * pixelWidth; i++) {
+		if (i % pixelWidth == 0) printf("\n");
 		printf("% 2.3f, ", fieldOut[i]);
 	}
 #endif

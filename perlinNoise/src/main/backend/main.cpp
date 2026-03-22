@@ -11,10 +11,11 @@ int main(int argc, char *argv[])
 	}
 
 	long seed = atol(argv[1]);	
+	unsigned pixelDim = 256;
 
-	pixel_t *field = fieldAlloc();
+	pixel_t *field = fieldAlloc(pixelDim);
 
-	int success = createField(field, seed, 0, 0, 4);
+	int success = createField(field, seed, pixelDim, 0, 0, 4);
 
 	fieldFree(field);
 

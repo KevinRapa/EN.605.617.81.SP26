@@ -4,9 +4,9 @@
 
 typedef float pixel_t;
 
-int createField(pixel_t *fieldOut, long seed, long x, long y, unsigned octaves);
+int createField(pixel_t *fieldOut, long seed, unsigned pixelWidth, long x, long y, unsigned octaves);
 
-pixel_t *fieldAlloc();
+pixel_t *fieldAlloc(unsigned pixelWidth);
 
 void fieldFree(pixel_t *field);
 

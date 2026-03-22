@@ -7,12 +7,10 @@
 #include <thrust/device_vector.h>
 #include <thrust/host_vector.h>
 
-__constant__ DWORD64 crctab64Device[256];
+// Number of values wide a single chunk in a grid of perlin noise is. This is not a standard value.
+static const unsigned CHUNK_DIM = 32;
 
-static bool isPowerOfTwo(unsigned x)
-{
-	return x && !(x & (x-1));
-}
+__constant__ DWORD64 crctab64Device[256];
 
 __device__ float generateVector(long worldSeed, long xCoord, long yCoord)
 {
@@ -89,33 +87,30 @@ int perlinInit()
 	return cudaMemcpyToSymbol(crctab64Device, crctab64, sizeof(crctab64));
 }
 
-int perlin(float *pixelsOut, long seed, long xCoord, long yCoord, int numChunksXY, int numPixelsXY, unsigned octaves)
+int perlin(float *noiseOut, long seed, long xCoord, long yCoord, unsigned xDim, unsigned yDim, unsigned octaves)
 {
-	if (!isPowerOfTwo(numChunksXY)) {
-		fprintf(stderr, "%s: grid dimension must be a power of 2\n", __func__);
-		return EXIT_FAILURE;
-	}
-	if (!isPowerOfTwo(numPixelsXY)) {
-		fprintf(stderr, "%s: chunk dimension must be a power of 2\n", __func__);
+	if (yDim % CHUNK_DIM != 0 || xDim % CHUNK_DIM != 0) {
+		fprintf(stderr, "%s: dimensions of noise grid must be a multiple of %u\n", __func__, CHUNK_DIM);
 		return EXIT_FAILURE;
 	}
 
-	int numPixels = numChunksXY * numChunksXY * numPixelsXY * numPixelsXY;
+	unsigned gridDimY = yDim / CHUNK_DIM;
+	unsigned gridDimX = xDim / CHUNK_DIM;
 
 	dim3 vectorFieldGridSize(1, 1);
-	dim3 vectorFieldBlockSize(numChunksXY + 1, numChunksXY + 1);
+	dim3 vectorFieldBlockSize(gridDimX + 1, gridDimY + 1);
 
-	dim3 perlinGridDim(numChunksXY, numChunksXY);
-	dim3 perlinChunkDim(numPixelsXY, numPixelsXY);
+	dim3 perlinGridDim(gridDimX, gridDimY);
+	dim3 perlinChunkDim(CHUNK_DIM, CHUNK_DIM);
 
-	// Plus 1 here because each float is a vector at a corner of a chunk, so there are numChunksXY+1 corners in each dimension
-	thrust::device_vector<float> vectorMapD((numChunksXY + 1) * (numChunksXY + 1));
-	thrust::device_vector<float> pixelsD(numPixels);
+	// Plus 1 here because each float is a vector at a corner of a chunk, so there are gridDimX+1 and gridDimY+1 corners in each dimension
+	thrust::device_vector<float> vectorMapD((gridDimX + 1) * (gridDimY + 1));
+	thrust::device_vector<float> pixelsD(xDim * yDim);
 
 	generateVectorField<<<vectorFieldGridSize, vectorFieldBlockSize>>>(thrust::raw_pointer_cast(vectorMapD.data()), seed, xCoord, yCoord);
 	generatePerlinNoise<<<perlinGridDim, perlinChunkDim>>>(thrust::raw_pointer_cast(pixelsD.data()), thrust::raw_pointer_cast(vectorMapD.data()));
 
-	thrust::copy(pixelsD.begin(), pixelsD.end(), pixelsOut);
+	thrust::copy(pixelsD.begin(), pixelsD.end(), noiseOut);
 
 	return EXIT_SUCCESS;
 }
