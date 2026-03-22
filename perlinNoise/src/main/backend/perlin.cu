@@ -29,7 +29,10 @@ __device__ float generateVector(long worldSeed, long xCoord, long yCoord)
 
 __global__ void generateVectorField(float *vectorsOut, long seed, long xCoord, long yCoord)
 {
-	vectorsOut[(threadIdx.y * blockDim.x) + threadIdx.x] = generateVector(seed, xCoord + threadIdx.x, yCoord + threadIdx.y);
+	float vect = generateVector(seed, (blockIdx.x * blockDim.x) + xCoord + threadIdx.x,
+	                                  (blockIdx.y * blockDim.y) + yCoord + threadIdx.y);
+
+	vectorsOut[((blockIdx.y * blockDim.y + threadIdx.y) * gridDim.x * blockDim.x) + (blockIdx.x * blockDim.x + threadIdx.x)] = vect;
 }
 
 __device__ float computeDotProduct(float horizontalOffsetMagnitude, float verticalOffsetMagnitude, float gradientVectorAngle)
@@ -42,19 +45,18 @@ __device__ float linearInterpolate(float percent, float n1, float n2)
 	return (1.0 - percent) * n1 + percent * n2;
 }
 
-__global__ void generatePerlinNoise(float *noiseOut, float *vectorMap)
+__global__ void generatePerlinNoise(float *noiseOut, float *vectorMap, int vectorFieldWidth)
 {
 	int chunkIdxX = blockIdx.x;
 	int chunkIdxY = blockIdx.y;
 	int pixelIdxX = threadIdx.x;
 	int pixelIdxY = threadIdx.y;
-	int numChunksX = gridDim.x + 1;
 	int globalThreadIdx = ((blockIdx.y * blockDim.y + threadIdx.y) * gridDim.x * blockDim.x) + (blockIdx.x * blockDim.x + threadIdx.x);
 
-	float thetaUL = vectorMap[chunkIdxY * numChunksX + chunkIdxX];
-	float thetaUR = vectorMap[chunkIdxY * numChunksX + (chunkIdxX + 1)];
-	float thetaLL = vectorMap[(chunkIdxY + 1) * numChunksX + chunkIdxX];
-	float thetaLR = vectorMap[(chunkIdxY + 1) * numChunksX + (chunkIdxX + 1)];
+	float thetaUL = vectorMap[chunkIdxY * vectorFieldWidth + chunkIdxX];
+	float thetaUR = vectorMap[chunkIdxY * vectorFieldWidth + (chunkIdxX + 1)];
+	float thetaLL = vectorMap[(chunkIdxY + 1) * vectorFieldWidth + chunkIdxX];
+	float thetaLR = vectorMap[(chunkIdxY + 1) * vectorFieldWidth + (chunkIdxX + 1)];
 
 	float offsetFromLeftEdge = -pixelIdxX;
 	float offsetFromTopEdge = pixelIdxY;
@@ -87,6 +89,15 @@ int perlinInit()
 	return cudaMemcpyToSymbol(crctab64Device, crctab64, sizeof(crctab64));
 }
 
+void checkLastError()
+{
+	cudaError_t err = cudaGetLastError();
+
+	if (err != 0) {
+		printf("Error calling kernel: %s\n", cudaGetErrorString(err));
+	}
+}
+
 int perlin(float *noiseOut, long seed, long xCoord, long yCoord, unsigned xDim, unsigned yDim, unsigned octaves)
 {
 	if (yDim % CHUNK_DIM != 0 || xDim % CHUNK_DIM != 0) {
@@ -97,18 +108,20 @@ int perlin(float *noiseOut, long seed, long xCoord, long yCoord, unsigned xDim, 
 	unsigned gridDimY = yDim / CHUNK_DIM;
 	unsigned gridDimX = xDim / CHUNK_DIM;
 
-	dim3 vectorFieldGridSize(1, 1);
-	dim3 vectorFieldBlockSize(gridDimX + 1, gridDimY + 1);
+	dim3 vectorFieldGridSize(2, 2);
+	dim3 vectorFieldBlockSize(gridDimX, gridDimY);
 
 	dim3 perlinGridDim(gridDimX, gridDimY);
 	dim3 perlinChunkDim(CHUNK_DIM, CHUNK_DIM);
 
 	// Plus 1 here because each float is a vector at a corner of a chunk, so there are gridDimX+1 and gridDimY+1 corners in each dimension
-	thrust::device_vector<float> vectorMapD((gridDimX + 1) * (gridDimY + 1));
+	thrust::device_vector<float> vectorMapD((gridDimX * 2) * (gridDimY * 2));
 	thrust::device_vector<float> pixelsD(xDim * yDim);
 
 	generateVectorField<<<vectorFieldGridSize, vectorFieldBlockSize>>>(thrust::raw_pointer_cast(vectorMapD.data()), seed, xCoord, yCoord);
-	generatePerlinNoise<<<perlinGridDim, perlinChunkDim>>>(thrust::raw_pointer_cast(pixelsD.data()), thrust::raw_pointer_cast(vectorMapD.data()));
+	checkLastError();
+	generatePerlinNoise<<<perlinGridDim, perlinChunkDim>>>(thrust::raw_pointer_cast(pixelsD.data()), thrust::raw_pointer_cast(vectorMapD.data()), gridDimX * 2);
+	checkLastError();
 
 	thrust::copy(pixelsD.begin(), pixelsD.end(), noiseOut);
 
