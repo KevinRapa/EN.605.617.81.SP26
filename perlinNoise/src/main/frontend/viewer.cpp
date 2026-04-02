@@ -187,8 +187,6 @@ void PerlinGenerator::handle_mouse_motion(double xpos, double ypos)
 	this->last_mouse_x = xpos;
 	this->last_mouse_y = ypos;
 	this->needs_update = true;
-
-	printf("CENTER: %f, %f\n", this->x_center, this->y_center);
 }
 
 void PerlinGenerator::render()
@@ -204,7 +202,7 @@ void PerlinGenerator::render()
 			field = fieldAlloc(window_width);
 		}
 
-		createField(field, this->seed, window_width, 0, 0, 0);
+		createField(field, this->seed, window_width, this->x_center, this->y_center, 0);
 
 		convertNoiseToUchar3(h_image, field, window_width);
 
@@ -231,11 +229,10 @@ void PerlinGenerator::render()
 void PerlinGenerator::run()
 {
 	glfwSetWindowTitle(window, "Minecruft");
-	render();
 
 	while (!glfwWindowShouldClose(window)) {
-		glfwPollEvents();	// Process input events (keyboard, mouse, etc.)
-		//render();	  // Compute and display fractal
+		glfwPollEvents();
+		render();
 	}
 }
 
