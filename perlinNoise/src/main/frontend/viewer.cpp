@@ -181,8 +181,11 @@ void PerlinGenerator::handle_mouse_motion(double xpos, double ypos)
 	double dx = xpos - this->last_mouse_x;
 	double dy = ypos - this->last_mouse_y;
 
-	this->x_center -= dx;
-	this->y_center += dy;
+	// This modifier slows down the screen when dragging
+	float scaleDown = 0.1;
+
+	this->x_center -= dx * scaleDown;
+	this->y_center += dy * scaleDown;
 
 	this->last_mouse_x = xpos;
 	this->last_mouse_y = ypos;
@@ -202,7 +205,7 @@ void PerlinGenerator::render()
 			field = fieldAlloc(window_width);
 		}
 
-		createField(field, this->seed, window_width, this->x_center, this->y_center, 0);
+		createField(field, this->seed, window_width, static_cast<long>(this->x_center), static_cast<long>(this->y_center), 0);
 
 		convertNoiseToUchar3(h_image, field, window_width);
 
