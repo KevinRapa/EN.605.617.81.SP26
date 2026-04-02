@@ -11,74 +11,86 @@
 #include <stdlib.h>
 #include <iostream>
 
-class PerlinGenerator {
+class ProceduralPerlin
+{
 private:
-	GLFWwindow* window;                             // GLFW window handle
-	GLuint texture_id;                              // OpenGL texture for display
-	GLuint pbo_id;                                  // Pixel Buffer Object (unused but initialized)
-	struct cudaGraphicsResource* cuda_pbo_resource; // CUDA-OpenGL interop handle
+	GLFWwindow* window;
+	GLuint textureId;
+	GLuint pbo;
+	struct cudaGraphicsResource* cudaPboResource;
 
-	int window_width;
-	int window_height;
-	double x_center;
-	double y_center;
-	bool mouse_dragging;
-	double last_mouse_x;
-	double last_mouse_y;
-	bool needs_update;
-	long seed;
+	int windowWidth;
+	int windowHeight;
+	double currentLocationX;
+	double currentLocationY;
+	double lastLocationX;
+	double lastLocationY;
+	bool mouseIsDragging;
+	bool shouldRender;
+	long perlinGeneratorSeed;
+	uchar3* canvas;
+
+	void initializeOpenGL();
+
+	// Callbacks for GLFW to call
+	static void mouseButtonCallback(GLFWwindow* window, int button, int action, int mods);
+	static void cursorPositionCallback(GLFWwindow* window, double xpos, double ypos);
+	static void framebufferSizeCallback(GLFWwindow* window, int width, int height);
+
+	// Handlers for mouse movement
+	void checkIfDragging(int button, int action, int mods);
+	void panWindow(double xpos, double ypos);
+
+	// Generates one image of perlin noise and renders it on screen
+	void renderField();
 
 public:
-	PerlinGenerator(int width, int height, long seed);
-	~PerlinGenerator();
+	ProceduralPerlin(int width, int height, long seed);
+	~ProceduralPerlin();
 
-	void initialize_opengl();
-	void initialize_cuda_gl_interop();
-	void setup_callbacks();
-
-	static void mouse_button_callback(GLFWwindow* window, int button, int action, int mods);
-	static void cursor_pos_callback(GLFWwindow* window, double xpos, double ypos);
-	static void framebuffer_size_callback(GLFWwindow* window, int width, int height);
-
-	void handle_mouse_button(int button, int action, int mods);
-	void handle_mouse_motion(double xpos, double ypos);
-	void render();
 	void run();
 };
 
-PerlinGenerator::PerlinGenerator(int width, int height, long seed)
+ProceduralPerlin::ProceduralPerlin(int width, int height, long seed)
 {
-	this->window_width = width;
-	this->window_height = height;
-	this->x_center = 0.0;
-	this->y_center = 0.0;
-	this->mouse_dragging = false;
-	this->needs_update = true;
-	this->seed = seed;
+	this->windowWidth = width;
+	this->windowHeight = height;
+	this->currentLocationX = 0.0;
+	this->currentLocationY = 0.0;
+	this->mouseIsDragging = false;
+	this->shouldRender = true;
+	this->perlinGeneratorSeed = seed;
+	this->canvas = new uchar3[this->windowWidth * this->windowHeight];
 
-	initialize_opengl();
-	initialize_cuda_gl_interop();
-	setup_callbacks();
+	initializeOpenGL();
+
+	cudaGraphicsGLRegisterBuffer(&this->cudaPboResource, this->pbo, cudaGraphicsMapFlagsWriteDiscard);
+
+	glfwSetMouseButtonCallback(this->window, this->mouseButtonCallback);
+	glfwSetCursorPosCallback(this->window, this->cursorPositionCallback);
+	glfwSetFramebufferSizeCallback(this->window, this->framebufferSizeCallback);
 }
 
-PerlinGenerator::~PerlinGenerator()
+ProceduralPerlin::~ProceduralPerlin()
 {
-	if (cuda_pbo_resource) {
-		cudaGraphicsUnregisterResource(cuda_pbo_resource);
+	if (this->cudaPboResource) {
+		cudaGraphicsUnregisterResource(this->cudaPboResource);
 	}
-	if (pbo_id) {
-		glDeleteBuffers(1, &pbo_id);
+	if (this->pbo) {
+		glDeleteBuffers(1, &this->pbo);
 	}
-	if (texture_id) {
-		glDeleteTextures(1, &texture_id);
+	if (this->textureId) {
+		glDeleteTextures(1, &this->textureId);
 	}
-	if (window) {
-		glfwDestroyWindow(window);
+	if (this->window) {
+		glfwDestroyWindow(this->window);
 	}
 	glfwTerminate();
+
+	delete[] this->canvas;
 }
 
-void PerlinGenerator::initialize_opengl()
+void ProceduralPerlin::initializeOpenGL()
 {
 	// Initialize GLFW library
 	if (!glfwInit()) {
@@ -92,20 +104,20 @@ void PerlinGenerator::initialize_opengl()
 	glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_COMPAT_PROFILE);
 
 	// Create window
-	window = glfwCreateWindow(window_width, window_height, "CUDA Fractal Explorer", NULL, NULL);
-	if (!window) {
+	this->window = glfwCreateWindow(this->windowWidth, this->windowHeight, "CUDA Fractal Explorer", NULL, NULL);
+	if (!this->window) {
 		fprintf(stderr, "Failed to create GLFW window!\n");
 		glfwTerminate();
 		exit(1);
 	}
 
 	// Make OpenGL context current for this thread
-	glfwMakeContextCurrent(window);
+	glfwMakeContextCurrent(this->window);
 
 	// DISABLE V-SYNC to show true GPU performance (not limited by monitor refresh)
 	glfwSwapInterval(0);  // 0 = V-Sync OFF, 1 = V-Sync ON
 
-	glfwSetWindowUserPointer(window, this);
+	glfwSetWindowUserPointer(this->window, this);
 
 	// Initialize GLEW to load OpenGL extensions
 	if (glewInit() != GLEW_OK) {
@@ -115,108 +127,91 @@ void PerlinGenerator::initialize_opengl()
 
 	// Configure OpenGL state
 	glDisable(GL_DEPTH_TEST);  // 2D rendering
-	glViewport(0, 0, window_width, window_height);
+	glViewport(0, 0, this->windowWidth, this->windowHeight);
 
 	// Create texture to display fractal image
-	glGenTextures(1, &texture_id);
-	glBindTexture(GL_TEXTURE_2D, texture_id);
+	glGenTextures(1, &this->textureId);
+	glBindTexture(GL_TEXTURE_2D, this->textureId);
 	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
 	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-	glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB8, window_width, window_height, 0, GL_RGB, GL_UNSIGNED_BYTE, nullptr);
+	glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB8, this->windowWidth, this->windowHeight, 0, GL_RGB, GL_UNSIGNED_BYTE, nullptr);
 
-	glGenBuffers(1, &pbo_id);
-	glBindBuffer(GL_PIXEL_UNPACK_BUFFER, pbo_id);
-	glBufferData(GL_PIXEL_UNPACK_BUFFER, window_width * window_height * 3 * sizeof(unsigned char), nullptr, GL_DYNAMIC_DRAW);
+	glGenBuffers(1, &this->pbo);
+	glBindBuffer(GL_PIXEL_UNPACK_BUFFER, this->pbo);
+	glBufferData(GL_PIXEL_UNPACK_BUFFER, this->windowWidth * this->windowHeight * sizeof(uchar3), nullptr, GL_DYNAMIC_DRAW);
 	glBindBuffer(GL_PIXEL_UNPACK_BUFFER, 0);
 }
 
-void PerlinGenerator::initialize_cuda_gl_interop()
+void ProceduralPerlin::mouseButtonCallback(GLFWwindow* window, int button, int action, int mods)
 {
-	cudaGraphicsGLRegisterBuffer(&cuda_pbo_resource, pbo_id, cudaGraphicsMapFlagsWriteDiscard);
+	ProceduralPerlin* viewer = static_cast<ProceduralPerlin*>(glfwGetWindowUserPointer(window));
+	viewer->checkIfDragging(button, action, mods);
 }
 
-void PerlinGenerator::setup_callbacks()
+void ProceduralPerlin::cursorPositionCallback(GLFWwindow* window, double xpos, double ypos)
 {
-	glfwSetMouseButtonCallback(window, mouse_button_callback);
-	glfwSetCursorPosCallback(window, cursor_pos_callback);
-	glfwSetFramebufferSizeCallback(window, framebuffer_size_callback);
+	ProceduralPerlin* viewer = static_cast<ProceduralPerlin*>(glfwGetWindowUserPointer(window));
+	viewer->panWindow(xpos, ypos);
 }
 
-void PerlinGenerator::mouse_button_callback(GLFWwindow* window, int button, int action, int mods)
-{
-	PerlinGenerator* viewer = static_cast<PerlinGenerator*>(glfwGetWindowUserPointer(window));
-	viewer->handle_mouse_button(button, action, mods);
-}
-
-void PerlinGenerator::cursor_pos_callback(GLFWwindow* window, double xpos, double ypos)
-{
-	PerlinGenerator* viewer = static_cast<PerlinGenerator*>(glfwGetWindowUserPointer(window));
-	viewer->handle_mouse_motion(xpos, ypos);
-}
-
-void PerlinGenerator::framebuffer_size_callback(GLFWwindow* window, int width, int height)
+void ProceduralPerlin::framebufferSizeCallback(GLFWwindow* window, int width, int height)
 {
 	glViewport(0, 0, width, height);
 }
 
-void PerlinGenerator::handle_mouse_button(int button, int action, int mods)
+void ProceduralPerlin::checkIfDragging(int button, int action, int mods)
 {
 	if (button == GLFW_MOUSE_BUTTON_LEFT) {
 		if (action == GLFW_PRESS) {
-			mouse_dragging = true;
-			glfwGetCursorPos(window, &this->last_mouse_x, &this->last_mouse_y);
+			this->mouseIsDragging = true;
+			glfwGetCursorPos(this->window, &this->lastLocationX, &this->lastLocationY);
 		} else if (action == GLFW_RELEASE) {
-			mouse_dragging = false;
+			this->mouseIsDragging = false;
 		}
 	}
 }
 
-void PerlinGenerator::handle_mouse_motion(double xpos, double ypos)
+void ProceduralPerlin::panWindow(double xpos, double ypos)
 {
-	if (!mouse_dragging) {
+	if (!this->mouseIsDragging) {
 		return;
 	}
 
 	// Calculate mouse movement delta in pixels
-	double dx = xpos - this->last_mouse_x;
-	double dy = ypos - this->last_mouse_y;
+	double dx = xpos - this->lastLocationX;
+	double dy = ypos - this->lastLocationY;
 
 	// This modifier slows down the screen when dragging
 	float scaleDown = 0.1;
 
-	this->x_center -= dx * scaleDown;
-	this->y_center += dy * scaleDown;
+	this->currentLocationX -= dx * scaleDown;
+	this->currentLocationY += dy * scaleDown;
 
-	this->last_mouse_x = xpos;
-	this->last_mouse_y = ypos;
-	this->needs_update = true;
+	this->lastLocationX = xpos;
+	this->lastLocationY = ypos;
+	this->shouldRender = true;
 }
 
-void PerlinGenerator::render()
+void ProceduralPerlin::renderField()
 {
-	if (this->needs_update) {
-		static uchar3* h_image = nullptr;
-		if (!h_image) {
-			h_image = (uchar3*)malloc(window_width * window_height * 3);
-		}
-
+	if (this->shouldRender) {
 		static float *field = nullptr;
 		if (!field) {
-			field = fieldAlloc(window_width);
+			field = fieldAlloc(this->windowWidth);
 		}
 
-		createField(field, this->seed, window_width, static_cast<long>(this->x_center), static_cast<long>(this->y_center), 0);
+		createField(field, this->perlinGeneratorSeed, this->windowWidth, static_cast<long>(this->currentLocationX), static_cast<long>(this->currentLocationY), 0);
 
-		convertNoiseToUchar3(h_image, field, window_width);
+		convertNoiseToUchar3(this->canvas, field, this->windowWidth);
 
-		glBindTexture(GL_TEXTURE_2D, texture_id);
-		glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, window_width, window_height,
-		                GL_RGB, GL_UNSIGNED_BYTE, reinterpret_cast<unsigned char *>(h_image));
+		glBindTexture(GL_TEXTURE_2D, this->textureId);
+		glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, this->windowWidth, this->windowHeight,
+		                GL_RGB, GL_UNSIGNED_BYTE, reinterpret_cast<unsigned char *>(this->canvas));
 	}
 
 	glClear(GL_COLOR_BUFFER_BIT);
 	glEnable(GL_TEXTURE_2D);
-	glBindTexture(GL_TEXTURE_2D, texture_id);
+	glBindTexture(GL_TEXTURE_2D, this->textureId);
 
 	glBegin(GL_QUADS);
 	glTexCoord2f(0.0f, 0.0f); glVertex2f(-1.0f, -1.0f);  // Bottom-left
@@ -226,16 +221,16 @@ void PerlinGenerator::render()
 	glEnd();
 
 	// Swap front/back buffers (double buffering)
-	glfwSwapBuffers(window);
+	glfwSwapBuffers(this->window);
 }
 
-void PerlinGenerator::run()
+void ProceduralPerlin::run()
 {
-	glfwSetWindowTitle(window, "Minecruft");
+	glfwSetWindowTitle(this->window, "Minecruft");
 
-	while (!glfwWindowShouldClose(window)) {
+	while (!glfwWindowShouldClose(this->window)) {
 		glfwPollEvents();
-		render();
+		renderField();
 	}
 }
 
@@ -253,7 +248,7 @@ int main(int argc, char** argv)
 	cudaSetDevice(0);
 
 	try {
-		PerlinGenerator viewer(WINDOW_WIDTH_MAX, WINDOW_HEIGHT_MAX, seed);
+		ProceduralPerlin viewer(WINDOW_WIDTH_MAX, WINDOW_HEIGHT_MAX, seed);
 		viewer.run();
 	} catch (const std::exception& e) {
 		fprintf(stderr, "Error: %s\n", e.what());
