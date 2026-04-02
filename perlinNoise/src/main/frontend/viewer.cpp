@@ -26,9 +26,10 @@ private:
 	double last_mouse_x;
 	double last_mouse_y;
 	bool needs_update;
+	long seed;
 
 public:
-	PerlinGenerator(int width, int height);
+	PerlinGenerator(int width, int height, long seed);
 	~PerlinGenerator();
 
 	void initialize_opengl();
@@ -45,7 +46,7 @@ public:
 	void run();
 };
 
-PerlinGenerator::PerlinGenerator(int width, int height)
+PerlinGenerator::PerlinGenerator(int width, int height, long seed)
 {
 	this->window_width = width;
 	this->window_height = height;
@@ -53,6 +54,7 @@ PerlinGenerator::PerlinGenerator(int width, int height)
 	this->y_center = 0.0;
 	this->mouse_dragging = false;
 	this->needs_update = true;
+	this->seed = seed;
 
 	initialize_opengl();
 	initialize_cuda_gl_interop();
@@ -202,7 +204,7 @@ void PerlinGenerator::render()
 			field = fieldAlloc(window_width);
 		}
 
-		createField(field, 0, window_width, 0, 0, 0);
+		createField(field, this->seed, window_width, 0, 0, 0);
 
 		convertNoiseToUchar3(h_image, field, window_width);
 
@@ -242,10 +244,16 @@ static const unsigned WINDOW_HEIGHT_MAX = 1024;
 
 int main(int argc, char** argv)
 {
+	long seed = 0;
+
+	if (argc > 1) {
+		seed = atoi(argv[1]);
+	}
+
 	cudaSetDevice(0);
 
 	try {
-		PerlinGenerator viewer(WINDOW_WIDTH_MAX, WINDOW_HEIGHT_MAX);
+		PerlinGenerator viewer(WINDOW_WIDTH_MAX, WINDOW_HEIGHT_MAX, seed);
 		viewer.run();
 	} catch (const std::exception& e) {
 		fprintf(stderr, "Error: %s\n", e.what());

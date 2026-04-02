@@ -76,7 +76,7 @@ __global__ void generatePerlinNoise(float *noiseOut, float *vectorMap, int vecto
 	float dotProductLR = computeDotProduct(offsetFromRightEdge, offsetFromBottomEdge, thetaLR);
 
 	float percentLR = static_cast<float>(threadIdx.x) / static_cast<float>(blockDim.x);
-	float percentUD = (static_cast<float>(blockDim.y) - static_cast<float>(threadIdx.y)) / static_cast<float>(blockDim.y);
+	float percentUD = static_cast<float>(threadIdx.y) / static_cast<float>(blockDim.y);
 
 	float interpBottom = linearInterpolate(percentLR, dotProductLL, dotProductLR);
 	float interpTop = linearInterpolate(percentLR, dotProductUL, dotProductUR);
