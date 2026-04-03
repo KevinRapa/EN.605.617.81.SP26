@@ -7,8 +7,6 @@
 
 static bool perlinInitialized = false;
 
-static const unsigned FIELD_PIXEL_WIDTH_MAX = 1024;
-
 static bool isPowerOfTwo(unsigned x)
 {
 	return x && !(x & (x-1));
@@ -16,6 +14,7 @@ static bool isPowerOfTwo(unsigned x)
 
 static bool validateSize(unsigned pixelWidth)
 {
+	// The power of 2 restriction should just make it easier to generate multiple octaves,
 	if (!isPowerOfTwo(pixelWidth)) {
 		fprintf(stderr, "Field dimension must be a power of 2\n");
 		return false;
@@ -56,6 +55,7 @@ int createField(pixel_t *fieldOut, long seed, unsigned pixelWidth, long x, long 
 	int ret = perlin(fieldOut, seed, x, y, pixelWidth, pixelWidth, octaves);
 
 #if 0
+	// For debugging
 	for (int i = 0; i < pixelWidth * pixelWidth; i++) {
 		if (i % pixelWidth == 0) printf("\n");
 		printf("% 2.3f, ", fieldOut[i]);

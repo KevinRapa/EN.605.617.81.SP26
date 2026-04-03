@@ -13,6 +13,7 @@ void testConvertNoiseToUchar3()
 
 	convertNoiseToUchar3(pixels, noise, 2);
 
+	// Results should be linearly correlated with values in `noise`
 	assert(p[0 * 3] == 0);
 	assert(p[1 * 3] == 85);
 	assert(p[2 * 3] == 170);
@@ -27,6 +28,7 @@ void testConvertNoiseToUchar3_2()
 	unsigned char *p = reinterpret_cast<unsigned char *>(pixels);
 	float noise[] = { -10.0, 0.0, 10.0, 20.0 };
 
+	// Results should be linearly correlated with values in `noise`
 	convertNoiseToUchar3(pixels, noise, 2);
 
 	assert(p[0 * 3] == 0);

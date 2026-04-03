@@ -7,11 +7,11 @@
 #include <thrust/device_vector.h>
 #include <thrust/host_vector.h>
 
-// Number of values wide a single chunk in a grid of perlin noise is. This is not a standard value.
-static const unsigned CHUNK_DIM = 32;
-
 __constant__ DWORD64 crctab64Device[256];
 
+/**
+ * Generates a random gradient vector. Returns angle in radians
+ */
 __device__ float generateVector(long worldSeed, long xCoord, long yCoord)
 {
 	long variables[] = { worldSeed, xCoord, yCoord };
@@ -19,6 +19,8 @@ __device__ float generateVector(long worldSeed, long xCoord, long yCoord)
 	DWORD64 crc = CRC_INIT;
 
 	for (int i = 0; i < sizeof(variables); i++) {
+		// See https://stackoverflow.com/questions/45625145/why-does-perlin-noise-use-a-hash-function-rather-than-computing-random-values
+		// For reasoning behind why I am using a hash function instead of curand to generate a random gradient vector
 		crc = crctab64Device[(crc ^ bytes[i]) & 0xff] ^ (crc >> 8);
 	}
 
@@ -27,6 +29,9 @@ __device__ float generateVector(long worldSeed, long xCoord, long yCoord)
 	return radians;
 }
 
+/**
+ * Generates a matrix of random gradient vectors
+ */
 __global__ void generateVectorField(float *vectorsOut, long seed, long xCoord, long yCoord)
 {
 	float vect = generateVector(seed, (blockIdx.x * blockDim.x) + xCoord + threadIdx.x,
@@ -35,46 +40,58 @@ __global__ void generateVectorField(float *vectorsOut, long seed, long xCoord, l
 	vectorsOut[((blockIdx.y * blockDim.y + threadIdx.y) * gridDim.x * blockDim.x) + (blockIdx.x * blockDim.x + threadIdx.x)] = vect;
 }
 
+/**
+ * Computes the dot product of a gradient vector with a pixel's distance from the edges of a chunk
+ *
+ * gradientVectorAngle is the angle of the gradient vector, and the offsets are the horizontal/vertical distance
+ * in pixels from the edges of the chunk. Those edges' intersection is where the gradient vector lies
+ */
 __device__ float computeDotProduct(float horizontalOffsetMagnitude, float verticalOffsetMagnitude, float gradientVectorAngle)
 {
 	return (horizontalOffsetMagnitude * cosf(gradientVectorAngle)) + (verticalOffsetMagnitude * sinf(gradientVectorAngle));
 }
 
+/**
+ * Interpolation function used to combine dot products of each pixel. This gives satisfactory results,
+ * but should be upgraded to a cubic function for more smoothness.
+ */
 __device__ float linearInterpolate(float percent, float n1, float n2)
 {
 	return (1.0 - percent) * n1 + percent * n2;
 }
 
+/**
+ * Main kernel that generates perlin noise
+ */
 __global__ void generatePerlinNoise(float *noiseOut, float *vectorMap, int vectorFieldWidth)
 {
+	// This kernel is run for each pixel in the perlin noise map
+
 	int chunkIdxX = blockIdx.x;
 	int chunkIdxY = blockIdx.y;
 	int pixelIdxX = threadIdx.x;
 	int pixelIdxY = threadIdx.y;
 	int globalThreadIdx = ((blockIdx.y * blockDim.y + threadIdx.y) * gridDim.x * blockDim.x) + (blockIdx.x * blockDim.x + threadIdx.x);
 
+	// Find the 4 gradient vectors surrounding this pixel
 	float thetaUL = vectorMap[chunkIdxY * vectorFieldWidth + chunkIdxX];
 	float thetaUR = vectorMap[chunkIdxY * vectorFieldWidth + (chunkIdxX + 1)];
 	float thetaLL = vectorMap[(chunkIdxY + 1) * vectorFieldWidth + chunkIdxX];
 	float thetaLR = vectorMap[(chunkIdxY + 1) * vectorFieldWidth + (chunkIdxX + 1)];
 
+	// Compute offsets of the pixel from the edges to use to compute the dot product
 	float offsetFromLeftEdge = -pixelIdxX;
 	float offsetFromTopEdge = pixelIdxY;
 	float offsetFromRightEdge = static_cast<int>(blockDim.x) - pixelIdxX - 1.0;
 	float offsetFromBottomEdge = -(static_cast<int>(blockDim.y) - pixelIdxY - 1.0);
 
-#if 0
-	printf("BLOCK(%d,%d) PIXEL(%d,%d)  UL:%f  UR:%f  LL:%f  LR:%f\n"
-	       "offFromLeft:%f   offFromRight:%f  offFromTop:%f  offFromBottom:%f\n", 
-               blockIdx.x, blockIdx.y, pixelIdxX, pixelIdxY, thetaUL, thetaUR, thetaLL, thetaLR,
-	       offsetFromLeftEdge, offsetFromRightEdge, offsetFromTopEdge, offsetFromBottomEdge);
-#endif
-
+	// Compute dot products
 	float dotProductUL = computeDotProduct(offsetFromLeftEdge, offsetFromTopEdge, thetaUL);
 	float dotProductUR = computeDotProduct(offsetFromRightEdge, offsetFromTopEdge, thetaUR);
 	float dotProductLL = computeDotProduct(offsetFromLeftEdge, offsetFromBottomEdge, thetaLL);
 	float dotProductLR = computeDotProduct(offsetFromRightEdge, offsetFromBottomEdge, thetaLR);
 
+	// Linearly interpolate the values and store
 	float percentLR = static_cast<float>(threadIdx.x) / static_cast<float>(blockDim.x);
 	float percentUD = static_cast<float>(threadIdx.y) / static_cast<float>(blockDim.y);
 
@@ -86,6 +103,7 @@ __global__ void generatePerlinNoise(float *noiseOut, float *vectorMap, int vecto
 
 int perlinInit()
 {
+	// Copy the crc 64 table to device memory for generating gradient vectors
 	return cudaMemcpyToSymbol(crctab64Device, crctab64, sizeof(crctab64));
 }
 
@@ -105,6 +123,7 @@ int perlin(float *noiseOut, long seed, long xCoord, long yCoord, unsigned xDim, 
 		return EXIT_FAILURE;
 	}
 
+	// Number of chunks in each dimension. See comment below for what a chunk is
 	unsigned gridDimY = yDim / CHUNK_DIM;
 	unsigned gridDimX = xDim / CHUNK_DIM;
 
@@ -114,12 +133,18 @@ int perlin(float *noiseOut, long seed, long xCoord, long yCoord, unsigned xDim, 
 	dim3 perlinGridDim(gridDimX, gridDimY);
 	dim3 perlinChunkDim(CHUNK_DIM, CHUNK_DIM);
 
-	// Plus 1 here because each float is a vector at a corner of a chunk, so there are gridDimX+1 and gridDimY+1 corners in each dimension
+	// Generating a vector map here about twice the size it needs to be. Strictly speaking, a size
+	// of (gridDimX+1) x (gridDimY+1) is sufficient, because given a grid X squares wide, there are X+1 corners
+ 	// However, the math is easier if I just do double the size. There's probably a better way to do this, but this was easy enough
 	thrust::device_vector<float> vectorMapD((gridDimX * 2) * (gridDimY * 2));
 	thrust::device_vector<float> pixelsD(xDim * yDim);
 
+	// First generate a grid of vectors. The grid of pixels is divided into chunks, where each chunk is 32 pixels wide/tall. Each
+	// Chunk is a square with a gradient vector at each corner.
 	generateVectorField<<<vectorFieldGridSize, vectorFieldBlockSize>>>(thrust::raw_pointer_cast(vectorMapD.data()), seed, xCoord, yCoord);
 	checkLastError();
+
+	// Generate the perlin noise using the vector field
 	generatePerlinNoise<<<perlinGridDim, perlinChunkDim>>>(thrust::raw_pointer_cast(pixelsD.data()), thrust::raw_pointer_cast(vectorMapD.data()), gridDimX * 2);
 	checkLastError();
 

@@ -9,7 +9,7 @@ extern const DWORD64 crctab64[256];
 #define CRC_INIT 0xFFFFFFFFFFFFFFFFULL
 
 /**
- * CRC64 function
+ * CRC64 function. Computes a CRC 64 hash from an array of bytes
  *
  * @param[in] data pointer to the buffer
  * @param[in] len length of buffer in bytes

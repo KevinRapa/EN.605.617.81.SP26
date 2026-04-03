@@ -1,3 +1,15 @@
+/**
+ * Procedural Perlin Noise Viewer
+ * Spring 2026 - EN.605.617.81.SP26
+ *
+ * Derived from work by Anwar Haidar's Fractal Renderer found in the project gallery
+ *
+ * This program creates a pannable window which displays preocedurally generated Perlin Noise
+ * Panning is accomplished by dragging the mouse. I saw that the Fractal Generator project
+ * was doing something very similar, although I did not need zooming functionality, so I
+ * used his methods using the GLFW OpenGL library and GLEW to create the window.
+ */
+
 #include <GL/glew.h>
 #include <GLFW/glfw3.h>
 
@@ -16,30 +28,34 @@ class ProceduralPerlin
 private:
 	GLFWwindow* window;
 	GLuint textureId;
-	GLuint pbo;
-	struct cudaGraphicsResource* cudaPboResource;
 
 	int windowWidth;
 	int windowHeight;
+
+	// Global coordinates determined by panning window
 	double currentLocationX;
 	double currentLocationY;
 	double lastLocationX;
 	double lastLocationY;
+
 	bool mouseIsDragging;
 	bool shouldRender;
+
+	// Perlin Generator specific variables
 	long perlinGeneratorSeed;
-	uchar3* canvas;
+	uchar3 *canvas;
+	float *field;
 
 	void initializeOpenGL();
 
 	// Callbacks for GLFW to call
 	static void mouseButtonCallback(GLFWwindow* window, int button, int action, int mods);
-	static void cursorPositionCallback(GLFWwindow* window, double xpos, double ypos);
+	static void cursorPositionCallback(GLFWwindow* window, double x, double y);
 	static void framebufferSizeCallback(GLFWwindow* window, int width, int height);
 
 	// Handlers for mouse movement
 	void checkIfDragging(int button, int action, int mods);
-	void panWindow(double xpos, double ypos);
+	void panWindow(double x, double y);
 
 	// Generates one image of perlin noise and renders it on screen
 	void renderField();
@@ -60,41 +76,38 @@ ProceduralPerlin::ProceduralPerlin(int width, int height, long seed)
 	this->mouseIsDragging = false;
 	this->shouldRender = true;
 	this->perlinGeneratorSeed = seed;
-	this->canvas = new uchar3[this->windowWidth * this->windowHeight];
 
 	initializeOpenGL();
-
-	cudaGraphicsGLRegisterBuffer(&this->cudaPboResource, this->pbo, cudaGraphicsMapFlagsWriteDiscard);
 
 	glfwSetMouseButtonCallback(this->window, this->mouseButtonCallback);
 	glfwSetCursorPosCallback(this->window, this->cursorPositionCallback);
 	glfwSetFramebufferSizeCallback(this->window, this->framebufferSizeCallback);
+
+	// Initialize last just in case above functions fail
+	this->canvas = new uchar3[this->windowWidth * this->windowHeight];
+	this->field = fieldAlloc(this->windowWidth);
 }
 
 ProceduralPerlin::~ProceduralPerlin()
 {
-	if (this->cudaPboResource) {
-		cudaGraphicsUnregisterResource(this->cudaPboResource);
-	}
-	if (this->pbo) {
-		glDeleteBuffers(1, &this->pbo);
-	}
 	if (this->textureId) {
 		glDeleteTextures(1, &this->textureId);
 	}
+
 	if (this->window) {
 		glfwDestroyWindow(this->window);
 	}
+
 	glfwTerminate();
 
 	delete[] this->canvas;
+	fieldFree(this->field);
 }
 
 void ProceduralPerlin::initializeOpenGL()
 {
-	// Initialize GLFW library
 	if (!glfwInit()) {
-		fprintf(stderr, "Failed to initialize GLFW!\n");
+		fprintf(stderr, "Failed to initialize GLFW\n");
 		exit(1);
 	}
 
@@ -104,9 +117,10 @@ void ProceduralPerlin::initializeOpenGL()
 	glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_COMPAT_PROFILE);
 
 	// Create window
-	this->window = glfwCreateWindow(this->windowWidth, this->windowHeight, "CUDA Fractal Explorer", NULL, NULL);
+	this->window = glfwCreateWindow(this->windowWidth, this->windowHeight, "Procedural Perlin Noise Viewer", NULL, NULL);
+
 	if (!this->window) {
-		fprintf(stderr, "Failed to create GLFW window!\n");
+		fprintf(stderr, "Failed to create GLFW window\n");
 		glfwTerminate();
 		exit(1);
 	}
@@ -114,44 +128,38 @@ void ProceduralPerlin::initializeOpenGL()
 	// Make OpenGL context current for this thread
 	glfwMakeContextCurrent(this->window);
 
-	// DISABLE V-SYNC to show true GPU performance (not limited by monitor refresh)
-	glfwSwapInterval(0);  // 0 = V-Sync OFF, 1 = V-Sync ON
-
+	// The GL callbacks must invoke methods on this object, so save a reference to `this` for gl to get later
 	glfwSetWindowUserPointer(this->window, this);
 
-	// Initialize GLEW to load OpenGL extensions
+	// Initialize GLEW
 	if (glewInit() != GLEW_OK) {
-		fprintf(stderr, "Failed to initialize GLEW!\n");
+		fprintf(stderr, "Failed to initialize GLEW\n");
 		exit(1);
 	}
 
-	// Configure OpenGL state
-	glDisable(GL_DEPTH_TEST);  // 2D rendering
+	// Configure OpenGL state for 2D rendering
+	glDisable(GL_DEPTH_TEST);
 	glViewport(0, 0, this->windowWidth, this->windowHeight);
 
-	// Create texture to display fractal image
+	// Initialize texture data
 	glGenTextures(1, &this->textureId);
 	glBindTexture(GL_TEXTURE_2D, this->textureId);
 	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
 	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
 	glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB8, this->windowWidth, this->windowHeight, 0, GL_RGB, GL_UNSIGNED_BYTE, nullptr);
 
-	glGenBuffers(1, &this->pbo);
-	glBindBuffer(GL_PIXEL_UNPACK_BUFFER, this->pbo);
-	glBufferData(GL_PIXEL_UNPACK_BUFFER, this->windowWidth * this->windowHeight * sizeof(uchar3), nullptr, GL_DYNAMIC_DRAW);
-	glBindBuffer(GL_PIXEL_UNPACK_BUFFER, 0);
 }
 
 void ProceduralPerlin::mouseButtonCallback(GLFWwindow* window, int button, int action, int mods)
 {
-	ProceduralPerlin* viewer = static_cast<ProceduralPerlin*>(glfwGetWindowUserPointer(window));
+	ProceduralPerlin* viewer = reinterpret_cast<ProceduralPerlin*>(glfwGetWindowUserPointer(window));
 	viewer->checkIfDragging(button, action, mods);
 }
 
-void ProceduralPerlin::cursorPositionCallback(GLFWwindow* window, double xpos, double ypos)
+void ProceduralPerlin::cursorPositionCallback(GLFWwindow* window, double x, double y)
 {
-	ProceduralPerlin* viewer = static_cast<ProceduralPerlin*>(glfwGetWindowUserPointer(window));
-	viewer->panWindow(xpos, ypos);
+	ProceduralPerlin* viewer = reinterpret_cast<ProceduralPerlin*>(glfwGetWindowUserPointer(window));
+	viewer->panWindow(x, y);
 }
 
 void ProceduralPerlin::framebufferSizeCallback(GLFWwindow* window, int width, int height)
@@ -171,15 +179,15 @@ void ProceduralPerlin::checkIfDragging(int button, int action, int mods)
 	}
 }
 
-void ProceduralPerlin::panWindow(double xpos, double ypos)
+void ProceduralPerlin::panWindow(double x, double y)
 {
 	if (!this->mouseIsDragging) {
 		return;
 	}
 
 	// Calculate mouse movement delta in pixels
-	double dx = xpos - this->lastLocationX;
-	double dy = ypos - this->lastLocationY;
+	double dx = x - this->lastLocationX;
+	double dy = y - this->lastLocationY;
 
 	// This modifier slows down the screen when dragging
 	float scaleDown = 0.1;
@@ -187,37 +195,39 @@ void ProceduralPerlin::panWindow(double xpos, double ypos)
 	this->currentLocationX -= dx * scaleDown;
 	this->currentLocationY += dy * scaleDown;
 
-	this->lastLocationX = xpos;
-	this->lastLocationY = ypos;
+	this->lastLocationX = x;
+	this->lastLocationY = y;
 	this->shouldRender = true;
 }
 
 void ProceduralPerlin::renderField()
 {
 	if (this->shouldRender) {
-		static float *field = nullptr;
-		if (!field) {
-			field = fieldAlloc(this->windowWidth);
-		}
+		createField(this->field, this->perlinGeneratorSeed, this->windowWidth, static_cast<long>(this->currentLocationX), static_cast<long>(this->currentLocationY), 0);
 
-		createField(field, this->perlinGeneratorSeed, this->windowWidth, static_cast<long>(this->currentLocationX), static_cast<long>(this->currentLocationY), 0);
-
-		convertNoiseToUchar3(this->canvas, field, this->windowWidth);
+		convertNoiseToUchar3(this->canvas, this->field, this->windowWidth);
 
 		glBindTexture(GL_TEXTURE_2D, this->textureId);
-		glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, this->windowWidth, this->windowHeight,
-		                GL_RGB, GL_UNSIGNED_BYTE, reinterpret_cast<unsigned char *>(this->canvas));
+
+		glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, this->windowWidth, this->windowHeight, GL_RGB, GL_UNSIGNED_BYTE, reinterpret_cast<unsigned char *>(this->canvas));
+
+		this->shouldRender = false;
 	}
 
 	glClear(GL_COLOR_BUFFER_BIT);
 	glEnable(GL_TEXTURE_2D);
 	glBindTexture(GL_TEXTURE_2D, this->textureId);
 
+	// Texture mapping stuff... TODO: Figure out what this does
 	glBegin(GL_QUADS);
-	glTexCoord2f(0.0f, 0.0f); glVertex2f(-1.0f, -1.0f);  // Bottom-left
-	glTexCoord2f(1.0f, 0.0f); glVertex2f( 1.0f, -1.0f);  // Bottom-right
-	glTexCoord2f(1.0f, 1.0f); glVertex2f( 1.0f,  1.0f);  // Top-right
-	glTexCoord2f(0.0f, 1.0f); glVertex2f(-1.0f,  1.0f);  // Top-left
+	glTexCoord2f(0.0f, 0.0f);
+	glVertex2f(-1.0f, -1.0f);  // Bottom-left
+	glTexCoord2f(1.0f, 0.0f);
+	glVertex2f( 1.0f, -1.0f);  // Bottom-right
+	glTexCoord2f(1.0f, 1.0f);
+	glVertex2f( 1.0f,  1.0f);  // Top-right
+	glTexCoord2f(0.0f, 1.0f);
+	glVertex2f(-1.0f,  1.0f);  // Top-left
 	glEnd();
 
 	// Swap front/back buffers (double buffering)
@@ -226,7 +236,7 @@ void ProceduralPerlin::renderField()
 
 void ProceduralPerlin::run()
 {
-	glfwSetWindowTitle(this->window, "Minecruft");
+	glfwSetWindowTitle(this->window, "Minecreft");
 
 	while (!glfwWindowShouldClose(this->window)) {
 		glfwPollEvents();
@@ -234,6 +244,8 @@ void ProceduralPerlin::run()
 	}
 }
 
+// 1024 happens to be the max that the perlin generator supports.
+// Also, the Field wrapper around the perlin generator locks the noise to a square, so these are the same
 static const unsigned WINDOW_WIDTH_MAX = 1024;
 static const unsigned WINDOW_HEIGHT_MAX = 1024;
 
