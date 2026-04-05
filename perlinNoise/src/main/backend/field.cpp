@@ -50,6 +50,8 @@ int createField(pixel_t *fieldOut, long seed, unsigned pixelWidth, long x, long 
 			fprintf(stderr, "%s: failed to initialize Perlin Generator (%d)\n", __func__, code);
 			return EXIT_FAILURE;
 		}
+
+		perlinInitialized = true;
 	}
 
 	int ret = perlin(fieldOut, seed, x, y, pixelWidth, pixelWidth, octaves);
