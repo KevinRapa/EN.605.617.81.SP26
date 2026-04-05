@@ -19,6 +19,7 @@
 #include <transformers.h>
 #include <field.h>
 
+#include <string.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <iostream>
@@ -256,17 +257,44 @@ void ProceduralPerlin::run()
 static const unsigned WINDOW_WIDTH_MAX = 1024;
 static const unsigned WINDOW_HEIGHT_MAX = 1024;
 
+void printUsage() {
+	printf("Usage: ./viewer [-h] [-o octaves] [-s seed]\n"
+	       "\n"
+	       "Options:\n"
+	       "-h:         Print this\n"
+	       "-o octaves: Specify number of octaves of noise to generate\n"
+	       "-s seed:    Specify the global seed for the generator\n"
+	);
+}
+
 int main(int argc, char** argv)
 {
+	// Defaults
 	long seed = 0;
 	unsigned octaves = 1;
 
-	if (argc > 1) {
-		seed = atoi(argv[1]);
-	}
+	argv++;
 
-	if (argc > 2) {
-		octaves = atoi(argv[2]);
+	// Parse arguments if there are any
+	while (argc > 1) {
+		char *currentArg = argv[0];
+		char *currentVal = argv[1];
+		
+		if (!strcmp("-o", currentArg)) {
+			octaves = atoi(currentVal);
+		} else if (!strcmp("-s", currentArg)) {
+			seed = atoi(currentVal);
+		} else if (!strcmp("-h", currentArg)) {
+			printUsage();
+			exit(EXIT_SUCCESS);
+		} else {
+			fprintf(stderr, "Unknown argument: %s\n", currentArg);
+			printUsage();
+			exit(EXIT_FAILURE);
+		}
+
+		argc -= 2;
+		argv += 2;
 	}
 
 	cudaSetDevice(0);
