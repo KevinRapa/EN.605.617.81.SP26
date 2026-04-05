@@ -43,6 +43,7 @@ private:
 
 	// Perlin Generator specific variables
 	long perlinGeneratorSeed;
+	unsigned octaves;
 	uchar3 *canvas;
 	float *field;
 
@@ -61,13 +62,13 @@ private:
 	void renderField();
 
 public:
-	ProceduralPerlin(int width, int height, long seed);
+	ProceduralPerlin(int width, int height, long seed, unsigned octaves);
 	~ProceduralPerlin();
 
 	void run();
 };
 
-ProceduralPerlin::ProceduralPerlin(int width, int height, long seed)
+ProceduralPerlin::ProceduralPerlin(int width, int height, long seed, unsigned octaves)
 {
 	this->windowWidth = width;
 	this->windowHeight = height;
@@ -76,6 +77,7 @@ ProceduralPerlin::ProceduralPerlin(int width, int height, long seed)
 	this->mouseIsDragging = false;
 	this->shouldRender = true;
 	this->perlinGeneratorSeed = seed;
+	this->octaves = octaves;
 
 	initializeOpenGL();
 
@@ -203,7 +205,12 @@ void ProceduralPerlin::panWindow(double x, double y)
 void ProceduralPerlin::renderField()
 {
 	if (this->shouldRender) {
-		createField(this->field, this->perlinGeneratorSeed, this->windowWidth, static_cast<long>(this->currentLocationX), static_cast<long>(this->currentLocationY), 0);
+		createField(this->field,
+		            this->perlinGeneratorSeed,
+		            this->windowWidth,
+		            static_cast<long>(this->currentLocationX),
+		            static_cast<long>(this->currentLocationY),
+		            this->octaves);
 
 		convertNoiseToUchar3(this->canvas, this->field, this->windowWidth);
 
@@ -252,15 +259,20 @@ static const unsigned WINDOW_HEIGHT_MAX = 1024;
 int main(int argc, char** argv)
 {
 	long seed = 0;
+	unsigned octaves = 1;
 
 	if (argc > 1) {
 		seed = atoi(argv[1]);
 	}
 
+	if (argc > 2) {
+		octaves = atoi(argv[2]);
+	}
+
 	cudaSetDevice(0);
 
 	try {
-		ProceduralPerlin viewer(WINDOW_WIDTH_MAX, WINDOW_HEIGHT_MAX, seed);
+		ProceduralPerlin viewer(WINDOW_WIDTH_MAX, WINDOW_HEIGHT_MAX, seed, octaves);
 		viewer.run();
 	} catch (const std::exception& e) {
 		fprintf(stderr, "Error: %s\n", e.what());

@@ -10,6 +10,11 @@ static const unsigned CHUNK_DIM = 32;
 int perlinInit();
 
 /**
+ * Cleans up resources allocated in generator
+ */
+void perlinDeinit();
+
+/**
  * Generated a matrix of perlin noise. Identical inputs result in identical outputs
  *
  * @param  noiseOut output matrix of floats. The range of these values is undefined.

@@ -3,18 +3,21 @@
 #include "perlin.h"
 
 #include <cmath>
+#include <cublas_v2.h>
 #include <iostream>
 #include <thrust/device_vector.h>
 #include <thrust/host_vector.h>
 
 __constant__ DWORD64 crctab64Device[256];
 
+static cublasHandle_t handle;
+
 /**
  * Generates a random gradient vector. Returns angle in radians
  */
-__device__ float generateVector(long worldSeed, long xCoord, long yCoord)
+__device__ float generateVector(long worldSeed, long xCoord, long yCoord, unsigned octaveNum)
 {
-	long variables[] = { worldSeed, xCoord, yCoord };
+	long variables[] = { worldSeed, xCoord, yCoord, octaveNum };
 	char *bytes = reinterpret_cast<char *>(variables);
 	DWORD64 crc = CRC_INIT;
 
@@ -32,10 +35,10 @@ __device__ float generateVector(long worldSeed, long xCoord, long yCoord)
 /**
  * Generates a matrix of random gradient vectors
  */
-__global__ void generateVectorField(float *vectorsOut, long seed, long xCoord, long yCoord)
+__global__ void generateVectorField(float *vectorsOut, long seed, long xCoord, long yCoord, unsigned octaveNum)
 {
 	float vect = generateVector(seed, (blockIdx.x * blockDim.x) + xCoord + threadIdx.x,
-	                                  (blockIdx.y * blockDim.y) + yCoord + threadIdx.y);
+	                                  (blockIdx.y * blockDim.y) + yCoord + threadIdx.y, octaveNum);
 
 	vectorsOut[((blockIdx.y * blockDim.y + threadIdx.y) * gridDim.x * blockDim.x) + (blockIdx.x * blockDim.x + threadIdx.x)] = vect;
 }
@@ -103,8 +106,15 @@ __global__ void generatePerlinNoise(float *noiseOut, float *vectorMap, int vecto
 
 int perlinInit()
 {
+	cublasCreate(&handle);
+
 	// Copy the crc 64 table to device memory for generating gradient vectors
 	return cudaMemcpyToSymbol(crctab64Device, crctab64, sizeof(crctab64));
+}
+
+void perlinDeinit()
+{
+	cublasDestroy(handle);
 }
 
 void checkLastError()
@@ -123,32 +133,51 @@ int perlin(float *noiseOut, long seed, long xCoord, long yCoord, unsigned xDim, 
 		return EXIT_FAILURE;
 	}
 
-	// Number of chunks in each dimension. See comment below for what a chunk is
-	unsigned gridDimY = yDim / CHUNK_DIM;
-	unsigned gridDimX = xDim / CHUNK_DIM;
+	unsigned currentGridDim = 2;
+	unsigned currentChunkDim = CHUNK_DIM;
 
-	dim3 vectorFieldGridSize(2, 2);
-	dim3 vectorFieldBlockSize(gridDimX, gridDimY);
+	thrust::device_vector<float> pixelsFinalD(xDim * yDim);
 
-	dim3 perlinGridDim(gridDimX, gridDimY);
-	dim3 perlinChunkDim(CHUNK_DIM, CHUNK_DIM);
+	thrust::fill(pixelsFinalD.begin(), pixelsFinalD.end(), 0);
 
-	// Generating a vector map here about twice the size it needs to be. Strictly speaking, a size
-	// of (gridDimX+1) x (gridDimY+1) is sufficient, because given a grid X squares wide, there are X+1 corners
- 	// However, the math is easier if I just do double the size. There's probably a better way to do this, but this was easy enough
-	thrust::device_vector<float> vectorMapD((gridDimX * 2) * (gridDimY * 2));
-	thrust::device_vector<float> pixelsD(xDim * yDim);
+	for (unsigned o = 0; o < octaves && currentChunkDim > 1; o++) {
+		// Number of chunks in each dimension. See comment below for what a chunk is
+		unsigned gridDimY = yDim / currentChunkDim;
+		unsigned gridDimX = xDim / currentChunkDim;
 
-	// First generate a grid of vectors. The grid of pixels is divided into chunks, where each chunk is 32 pixels wide/tall. Each
-	// Chunk is a square with a gradient vector at each corner.
-	generateVectorField<<<vectorFieldGridSize, vectorFieldBlockSize>>>(thrust::raw_pointer_cast(vectorMapD.data()), seed, xCoord, yCoord);
-	checkLastError();
+		dim3 vectorFieldGridSize(currentGridDim, currentGridDim);
+		dim3 vectorFieldBlockSize(CHUNK_DIM, CHUNK_DIM);
 
-	// Generate the perlin noise using the vector field
-	generatePerlinNoise<<<perlinGridDim, perlinChunkDim>>>(thrust::raw_pointer_cast(pixelsD.data()), thrust::raw_pointer_cast(vectorMapD.data()), gridDimX * 2);
-	checkLastError();
+		dim3 perlinGridDim(gridDimX, gridDimY);
+		dim3 perlinChunkDim(currentChunkDim, currentChunkDim);
 
-	thrust::copy(pixelsD.begin(), pixelsD.end(), noiseOut);
+		// Generating a vector map here about twice the size it needs to be. Strictly speaking, a size
+		// of (gridDimX+1) x (gridDimY+1) is sufficient, because given a grid X squares wide, there are X+1 corners
+		// However, the math is easier if I just do double the size. There's probably a better way to do this, but this was easy enough
+		thrust::device_vector<float> vectorMapD((gridDimX * 2) * (gridDimY * 2));
+		thrust::device_vector<float> pixelsD(xDim * yDim);
+
+		// First generate a grid of vectors. The grid of pixels is divided into chunks, where each chunk is 32 pixels wide/tall. Each
+		// Chunk is a square with a gradient vector at each corner.
+		generateVectorField<<<vectorFieldGridSize, vectorFieldBlockSize>>>(thrust::raw_pointer_cast(vectorMapD.data()), seed, xCoord, yCoord, o);
+		checkLastError();
+
+		// Generate the perlin noise using the vector field
+		generatePerlinNoise<<<perlinGridDim, perlinChunkDim>>>(thrust::raw_pointer_cast(pixelsD.data()),
+		                                                       thrust::raw_pointer_cast(vectorMapD.data()),
+		                                                       gridDimX * 2);
+		checkLastError();
+
+		// With each octave, we generate noise double the granularity and add it to the final
+		// result. This means double the number of gradient vectors are made each generation.
+		const float SCALAR = 1.0;
+		cublasSaxpy(handle, xDim * yDim, &SCALAR, thrust::raw_pointer_cast(pixelsD.data()), 1, thrust::raw_pointer_cast(pixelsFinalD.data()), 1);
+
+		currentGridDim *= 2;
+		currentChunkDim /= 2;
+	}
+
+	thrust::copy(pixelsFinalD.begin(), pixelsFinalD.end(), noiseOut);
 
 	return EXIT_SUCCESS;
 }

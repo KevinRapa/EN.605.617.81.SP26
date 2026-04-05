@@ -23,7 +23,7 @@ The code for the view is in src/main/frontend, and the perlin noise stuff is in 
 
 ## TODOS
 
-1. Implement multiple octaves
+~~1. Implement multiple octaves~~
 2. Create a 3D viewer in Python or something
 3. Do something interesting like layering multiple perlin noise maps to create biomes
 4. Make mouse dragging smoother (unlikely to happen)
