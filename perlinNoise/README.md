@@ -17,6 +17,9 @@ Install GLFW3 and GLEW: `sudo apt-get install libglew-dev libglfw3 libglfw3-dev`
 
 Run `make viewer` and drag the screen! Hope it works...
 
+You can now specify octaves. Use '-o' flag: `./viewer -o 3`.
+Specify seed with `-s SEED`.
+
 ## Description of files
 
 The code for the view is in src/main/frontend, and the perlin noise stuff is in src/main/backend
