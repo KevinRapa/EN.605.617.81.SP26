@@ -41,6 +41,30 @@ void convertNoiseToUchar3(uchar3 *pixels, const float *noise, unsigned pixelWidt
 
 enum Threshold { LOW, MEDIUM, HIGH, VERY_HIGH };
 
+__device__ enum Threshold getElevationLevel(float elevation, float elevationMax)
+{
+	if (elevation > elevationMax * 0.75) {
+		return VERY_HIGH;
+	} else if (elevation > elevationMax * 0.4) {
+		return HIGH;
+	} else if (elevation > elevationMax * 0.01) {
+		return MEDIUM;
+	} else {
+		return LOW;
+	}
+}
+
+__device__ enum Threshold getHumidityLevel(float humidity, float humidityMin, float humidityMax)
+{
+	if ((humidity - humidityMin) > (humidityMax - humidityMin) * 0.6) {
+		return HIGH;
+	} else if ((humidity - humidityMin) > (humidityMax - humidityMin) * 0.5) {
+		return MEDIUM;
+	} else {
+		return LOW;
+	}
+}
+
 __global__ void combineElevationAndHumdityLayersKernel(
 	uchar3 *pixels,
 	const float* elevation,
@@ -55,87 +79,61 @@ __global__ void combineElevationAndHumdityLayersKernel(
 {
 	unsigned globalIdx = blockIdx.x * blockDim.x + threadIdx.x;
 
-	enum Threshold elevationLevel;
-	enum Threshold humidityLevel;
+	const uchar3 BUSH_COLOR = make_uchar3(130, 130, 60);
+	const uchar3 PLAINS_COLOR = make_uchar3(200, 200, 60);
+	const uchar3 TREE_COLOR = make_uchar3(50, 185, 50);
+	const uchar3 FOREST_FLOOR_COLOR = make_uchar3(50, 235, 50);
+	const uchar3 SNOW_COLOR = make_uchar3(255, 255, 255);
 
 	float e = elevation[globalIdx];
-	float h = humidity[globalIdx];
-	float detailPixel = details[globalIdx];
 	uchar3 pixelColor;
+
+	// Each detail pixel represents the probability of a feature existing in that pixel.
+	// Anchor pixel value to zero to make math simpler
+	float detailPixel = details[globalIdx] - detailsMin;
+	detailsMax -= detailsMin;
+
+	enum Threshold elevationLevel = getElevationLevel(e, elevationMax);
+	enum Threshold humidityLevel = getHumidityLevel(humidity[globalIdx], humidityMin, humidityMax);
 
 	curandState_t state;
 	curand_init(1, globalIdx, 0, &state);
 
-	// Set the elevation level
-	if (e > elevationMax * 0.75) {
-		elevationLevel = VERY_HIGH;
-	} else if (e > elevationMax * 0.4) {
-		elevationLevel = HIGH;
-	} else if (e > elevationMax * 0.01) {
-		elevationLevel = MEDIUM;
-	} else {
-		elevationLevel = LOW;
-	}
-
-	// Set the humidity level
-	if ((h - humidityMin) > (humidityMax - humidityMin) * 0.6) {
-		humidityLevel = HIGH;
-	} else if ((h - humidityMin) > (humidityMax - humidityMin) * 0.5) {
-		humidityLevel = MEDIUM;
-	} else {
-		humidityLevel = LOW;
-	}
-
 	// Set the pixel color based on elevation and humidity. Also populate trees/bushes with detail layer
 	if (elevationLevel == VERY_HIGH) {
 		// SNOWCAP
-		float probabilityOfSnow;
-		float draw = static_cast<float>(curand(&state) % 101);
-
-		if (e > elevationMax * 0.90) {
-			probabilityOfSnow = 100.0;
-		} else if (e > elevationMax * 0.85) {
-			probabilityOfSnow = 80.0;
-		} else {
-			probabilityOfSnow = 60.0;
-		}
-
-		if (draw < probabilityOfSnow) {
-			pixelColor = make_uchar3(255, 255, 255);
-		} else {
-			pixelColor = make_uchar3(128, 128, 128);
-		}
+		pixelColor = SNOW_COLOR;
 	} else if (elevationLevel == HIGH) {
-		// MOUNTAIN
-		pixelColor = make_uchar3(128, 128, 128);
+		// MOUNTAIN. Modify brightness per elevation
+		unsigned char color = 128 + static_cast<unsigned char>(70.0 * (((e / elevationMax) - 0.4) / 0.35));  // Magic. Sorry
+		pixelColor = make_uchar3(color, color, color);
 	} else if (elevationLevel == LOW) {
-		// RIVER
-		pixelColor = make_uchar3(80, 235, 235);
+		// RIVER. Modify brightness per depth
+		unsigned char color = 225 + static_cast<char>((e / elevationMax) / 0.01);  // Magic. This just looks fine.
+		pixelColor = make_uchar3(80, color - 30, color);
 	} else if (humidityLevel != LOW) {
 		// FOREST
-		float probabilityOfTree = ((detailPixel - detailsMin) / (detailsMax - detailsMin)) * 100.0;
+		float probabilityOfTree = (detailPixel / detailsMax) * 100.0;
 		float draw = static_cast<float>(curand(&state) % 101);
 
 		if (humidityLevel == MEDIUM) {
-			probabilityOfTree /= 4.0;
+			probabilityOfTree /= 4.0;  // Make trees sparser near edge of biome.
 		}
 
 		if (draw < probabilityOfTree) {
-			// There's a tree in this pixel
-			pixelColor = make_uchar3(80, 185, 80);
+			pixelColor = TREE_COLOR;
 		} else {
-			pixelColor = make_uchar3(80, 255, 80);
+			pixelColor = FOREST_FLOOR_COLOR;
 		}
 	} else {
 		// PLAINS
-		float probabilityOfBush = ((detailPixel - detailsMin) / (detailsMax - detailsMin)) * 100.0 * 0.1;
+		float probabilityOfBush = (detailPixel / detailsMax) * 100.0 * 0.1;  // Bushes are rare, hence the 0.1 modifier
 		float draw = static_cast<float>(curand(&state) % 101);
 
 		if (draw < probabilityOfBush) {
-			pixelColor = make_uchar3(140, 140, 80);
+			pixelColor = BUSH_COLOR;
 		} else {
-			// There's a bush in this pixel
-			pixelColor = make_uchar3(225, 225, 80);
+			pixelColor = PLAINS_COLOR;
 		}
 	}
 
