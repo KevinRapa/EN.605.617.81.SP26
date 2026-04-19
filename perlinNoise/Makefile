@@ -1,7 +1,7 @@
 all: test viewer
 
 viewer: clean
-	nvcc -o viewer --std=c++11 -lglfw -lGL -lGLEW -lcublas -Isrc/main/backend -Isrc/main/frontend src/main/backend/field.cpp src/main/backend/crc64.cpp src/main/backend/*.cu src/main/frontend/*.cpp
+	nvcc -o viewer --std=c++11 -lglfw -lGL -lGLEW -lcublas -Isrc/main/backend -Isrc/main/frontend src/main/backend/field.cpp src/main/backend/crc64.cpp src/main/backend/*.cu src/main/frontend/*.cu
 
 clean:
 	rm -f perlinTest fieldTest main transformersTest viewer

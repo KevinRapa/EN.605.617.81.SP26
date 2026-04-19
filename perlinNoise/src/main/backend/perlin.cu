@@ -7,6 +7,7 @@
 #include <iostream>
 #include <thrust/device_vector.h>
 #include <thrust/host_vector.h>
+#include <thrust/execution_policy.h>
 
 __constant__ DWORD64 crctab64Device[256];
 
@@ -126,19 +127,14 @@ void checkLastError()
 	}
 }
 
-int perlin(float *noiseOut, long seed, long xCoord, long yCoord, unsigned xDim, unsigned yDim, unsigned octaves)
+int perlinDevice(thrust::device_vector<float> *noiseOut, long seed, long xCoord, long yCoord, unsigned xDim, unsigned yDim, unsigned octaves, cudaStream_t stream)
 {
-	if (yDim % CHUNK_DIM != 0 || xDim % CHUNK_DIM != 0) {
-		fprintf(stderr, "%s: dimensions of noise grid must be a multiple of %u\n", __func__, CHUNK_DIM);
-		return EXIT_FAILURE;
-	}
-
 	unsigned currentGridDim = 2;
 	unsigned currentChunkDim = CHUNK_DIM;
 
-	thrust::device_vector<float> pixelsFinalD(xDim * yDim);
+	thrust::fill(thrust::cuda::par.on(stream), noiseOut->begin(), noiseOut->end(), 0);
 
-	thrust::fill(pixelsFinalD.begin(), pixelsFinalD.end(), 0);
+	thrust::device_vector<float> pixelsD(xDim * yDim);
 
 	for (unsigned o = 0; o < octaves && currentChunkDim > 1; o++) {
 		// Number of chunks in each dimension. See comment below for what a chunk is
@@ -155,27 +151,49 @@ int perlin(float *noiseOut, long seed, long xCoord, long yCoord, unsigned xDim, 
 		// of (gridDimX+1) x (gridDimY+1) is sufficient, because given a grid X squares wide, there are X+1 corners
 		// However, the math is easier if I just do double the size. There's probably a better way to do this, but this was easy enough
 		thrust::device_vector<float> vectorMapD((gridDimX * 2) * (gridDimY * 2));
-		thrust::device_vector<float> pixelsD(xDim * yDim);
 
 		// First generate a grid of vectors. The grid of pixels is divided into chunks, where each chunk is 32 pixels wide/tall. Each
 		// Chunk is a square with a gradient vector at each corner.
-		generateVectorField<<<vectorFieldGridSize, vectorFieldBlockSize>>>(thrust::raw_pointer_cast(vectorMapD.data()), seed, xCoord, yCoord, o);
-		checkLastError();
+		generateVectorField<<<vectorFieldGridSize, vectorFieldBlockSize, 0, stream>>>(
+		    thrust::raw_pointer_cast(vectorMapD.data()),
+		    seed, xCoord, yCoord, o
+		);
 
 		// Generate the perlin noise using the vector field
-		generatePerlinNoise<<<perlinGridDim, perlinChunkDim>>>(thrust::raw_pointer_cast(pixelsD.data()),
-		                                                       thrust::raw_pointer_cast(vectorMapD.data()),
-		                                                       gridDimX * 2);
-		checkLastError();
+		generatePerlinNoise<<<perlinGridDim, perlinChunkDim, 0, stream>>>(
+		    thrust::raw_pointer_cast(pixelsD.data()),
+		    thrust::raw_pointer_cast(vectorMapD.data()),
+		    gridDimX * 2
+		);
 
 		// With each octave, we generate noise double the granularity and add it to the final
 		// result. This means double the number of gradient vectors are made each generation.
 		const float SCALAR = 1.0;
-		cublasSaxpy(handle, xDim * yDim, &SCALAR, thrust::raw_pointer_cast(pixelsD.data()), 1, thrust::raw_pointer_cast(pixelsFinalD.data()), 1);
+		cublasSetStream(handle, stream);
+		cublasSaxpy(handle, xDim * yDim, &SCALAR, thrust::raw_pointer_cast(pixelsD.data()), 1, thrust::raw_pointer_cast(noiseOut->data()), 1);
 
 		currentGridDim *= 2;
 		currentChunkDim /= 2;
 	}
+
+	return EXIT_SUCCESS;
+}
+
+int perlin(float *noiseOut, long seed, long xCoord, long yCoord, unsigned xDim, unsigned yDim, unsigned octaves)
+{
+	if (yDim % CHUNK_DIM != 0 || xDim % CHUNK_DIM != 0) {
+		fprintf(stderr, "%s: dimensions of noise grid must be a multiple of %u\n", __func__, CHUNK_DIM);
+		return EXIT_FAILURE;
+	}
+
+	cudaStream_t stream;
+	cudaStreamCreate(&stream);
+
+	thrust::device_vector<float> pixelsFinalD(xDim * yDim);
+
+	perlinDevice(&pixelsFinalD, seed, xCoord, yCoord, xDim, yDim, octaves, stream);
+
+	cudaStreamDestroy(stream);
 
 	thrust::copy(pixelsFinalD.begin(), pixelsFinalD.end(), noiseOut);
 

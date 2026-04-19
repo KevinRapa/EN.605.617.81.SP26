@@ -1,6 +1,8 @@
 #ifndef PERLIN_H
 #define PERLIN_H
 
+#include <thrust/device_vector.h>
+
 // Number of values wide a single chunk in a grid of perlin noise is. This is not a standard value.
 static const unsigned CHUNK_DIM = 32;
 
@@ -27,5 +29,7 @@ void perlinDeinit();
  * @return          EXIT_SUCCESS on success, EXIT_FAILURE on failure.
  */
 int perlin(float *noiseOut, long seed, long xCoord, long yCoord, unsigned xDim, unsigned yDim, unsigned octaves);
+
+int perlinDevice(thrust::device_vector<float> *noiseOut, long seed, long xCoord, long yCoord, unsigned xDim, unsigned yDim, unsigned octaves, cudaStream_t stream);
 
 #endif

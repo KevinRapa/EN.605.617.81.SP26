@@ -3,6 +3,13 @@
 
 #include <cuda_gl_interop.h>
 
+#include <thrust/device_vector.h>
+
+#define MOUNTAIN 'm'
+#define FOREST 'f'
+#define PLAINS 'd'
+#define RIVER 'r'
+
 /**
  * Converts a matrix of perlin noise, represented as floats, to a matrix of uchar3 representing pixel colors
  *
@@ -16,6 +23,13 @@
  * @param  pixelWidth x/y dimension of noise.
  * @return            A `pixelWidth` x `pixelWidth` matrix of uchar3
  */
-void convertNoiseToUchar3(uchar3 *pixels, const float *noise, unsigned pixelWidth);
+void convertNoiseToUchar3(uchar3 *pixels, const char *noise, unsigned pixelWidth);
+
+void combineElevationAndHumdityLayers(thrust::device_vector<char> *pixels,
+                                      const thrust::device_vector<float> *elevation,
+                                      const thrust::device_vector<float> *humidity,
+                                      unsigned pixelWidth);
+
+void convertBiomesTouchar3(uchar3 *pixels, const char *biomes, unsigned pixelWidth);
 
 #endif

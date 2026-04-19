@@ -15,9 +15,11 @@
 
 #include <cuda_runtime.h>
 #include <cuda_gl_interop.h>
+#include <thrust/device_vector.h>
+#include <thrust/host_vector.h>
 
 #include <transformers.h>
-#include <field.h>
+#include <perlin.h>
 
 #include <string.h>
 #include <stdio.h>
@@ -46,7 +48,13 @@ private:
 	long perlinGeneratorSeed;
 	unsigned octaves;
 	uchar3 *canvas;
-	float *field;
+
+	thrust::device_vector<float> layerElevationD;
+	thrust::device_vector<float> layerHumidityD;
+	thrust::device_vector<char> layersCombinedD;
+	thrust::device_vector<uchar3> canvasD;
+
+	cudaStream_t stream1, stream2;
 
 	void initializeOpenGL();
 
@@ -61,6 +69,7 @@ private:
 
 	// Generates one image of perlin noise and renders it on screen
 	void renderField();
+	void generateTerrain();
 
 public:
 	ProceduralPerlin(int width, int height, long seed, unsigned octaves);
@@ -85,10 +94,19 @@ ProceduralPerlin::ProceduralPerlin(int width, int height, long seed, unsigned oc
 	glfwSetMouseButtonCallback(this->window, this->mouseButtonCallback);
 	glfwSetCursorPosCallback(this->window, this->cursorPositionCallback);
 	glfwSetFramebufferSizeCallback(this->window, this->framebufferSizeCallback);
+ 
+	perlinInit();
 
 	// Initialize last just in case above functions fail
 	this->canvas = new uchar3[this->windowWidth * this->windowHeight];
-	this->field = fieldAlloc(this->windowWidth);
+
+	this->layerElevationD = thrust::device_vector<float>(this->windowWidth * this->windowWidth);
+	this->layerHumidityD = thrust::device_vector<float>(this->windowWidth * this->windowWidth);
+	this->layersCombinedD = thrust::device_vector<char>(this->windowWidth * this->windowWidth);
+	this->canvasD = thrust::device_vector<uchar3>(this->windowWidth * this->windowWidth);
+
+	cudaStreamCreate(&this->stream1);
+	cudaStreamCreate(&this->stream2);
 }
 
 ProceduralPerlin::~ProceduralPerlin()
@@ -101,10 +119,13 @@ ProceduralPerlin::~ProceduralPerlin()
 		glfwDestroyWindow(this->window);
 	}
 
+	perlinDeinit();
 	glfwTerminate();
 
 	delete[] this->canvas;
-	fieldFree(this->field);
+
+	cudaStreamDestroy(this->stream1);
+	cudaStreamDestroy(this->stream2);
 }
 
 void ProceduralPerlin::initializeOpenGL()
@@ -203,17 +224,40 @@ void ProceduralPerlin::panWindow(double x, double y)
 	this->shouldRender = true;
 }
 
+void ProceduralPerlin::generateTerrain()
+{
+	perlinDevice(&this->layerElevationD,
+	             this->perlinGeneratorSeed,
+	             static_cast<long>(this->currentLocationX),
+	             static_cast<long>(this->currentLocationY),
+	             this->windowWidth,
+	             this->windowWidth,
+	             this->octaves,
+	             stream1);
+
+	perlinDevice(&this->layerHumidityD,
+	             this->perlinGeneratorSeed + 1,
+	             static_cast<long>(this->currentLocationX),
+	             static_cast<long>(this->currentLocationY),
+	             this->windowWidth,
+	             this->windowWidth,
+	             this->octaves,
+	             stream2);
+
+	cudaStreamSynchronize(stream1);
+	cudaStreamSynchronize(stream2);
+
+	combineElevationAndHumdityLayers(&this->layersCombinedD, &this->layerElevationD, &this->layerHumidityD, this->windowWidth);
+
+	convertBiomesTouchar3(thrust::raw_pointer_cast(this->canvasD.data()), thrust::raw_pointer_cast(this->layersCombinedD.data()), this->windowWidth);
+
+	thrust::copy(this->canvasD.begin(), this->canvasD.end(), this->canvas);
+}
+
 void ProceduralPerlin::renderField()
 {
 	if (this->shouldRender) {
-		createField(this->field,
-		            this->perlinGeneratorSeed,
-		            this->windowWidth,
-		            static_cast<long>(this->currentLocationX),
-		            static_cast<long>(this->currentLocationY),
-		            this->octaves);
-
-		convertNoiseToUchar3(this->canvas, this->field, this->windowWidth);
+		this->generateTerrain();
 
 		glBindTexture(GL_TEXTURE_2D, this->textureId);
 
