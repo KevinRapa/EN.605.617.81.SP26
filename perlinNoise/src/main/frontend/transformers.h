@@ -5,11 +5,6 @@
 
 #include <thrust/device_vector.h>
 
-#define MOUNTAIN 'm'
-#define FOREST 'f'
-#define PLAINS 'd'
-#define RIVER 'r'
-
 /**
  * Converts a matrix of perlin noise, represented as floats, to a matrix of uchar3 representing pixel colors
  *
@@ -25,11 +20,10 @@
  */
 void convertNoiseToUchar3(uchar3 *pixels, const char *noise, unsigned pixelWidth);
 
-void combineElevationAndHumdityLayers(thrust::device_vector<char> *pixels,
+void combineElevationAndHumdityLayers(thrust::device_vector<uchar3> *pixels,
                                       const thrust::device_vector<float> *elevation,
                                       const thrust::device_vector<float> *humidity,
+                                      const thrust::device_vector<float> *details,
                                       unsigned pixelWidth);
-
-void convertBiomesTouchar3(uchar3 *pixels, const char *biomes, unsigned pixelWidth);
 
 #endif

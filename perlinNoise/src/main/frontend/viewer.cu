@@ -51,10 +51,10 @@ private:
 
 	thrust::device_vector<float> layerElevationD;
 	thrust::device_vector<float> layerHumidityD;
-	thrust::device_vector<char> layersCombinedD;
+	thrust::device_vector<float> layerDetailsD;
 	thrust::device_vector<uchar3> canvasD;
 
-	cudaStream_t stream1, stream2;
+	cudaStream_t stream1, stream2, stream3;
 
 	void initializeOpenGL();
 
@@ -102,11 +102,12 @@ ProceduralPerlin::ProceduralPerlin(int width, int height, long seed, unsigned oc
 
 	this->layerElevationD = thrust::device_vector<float>(this->windowWidth * this->windowWidth);
 	this->layerHumidityD = thrust::device_vector<float>(this->windowWidth * this->windowWidth);
-	this->layersCombinedD = thrust::device_vector<char>(this->windowWidth * this->windowWidth);
+	this->layerDetailsD = thrust::device_vector<float>(this->windowWidth * this->windowWidth);
 	this->canvasD = thrust::device_vector<uchar3>(this->windowWidth * this->windowWidth);
 
 	cudaStreamCreate(&this->stream1);
 	cudaStreamCreate(&this->stream2);
+	cudaStreamCreate(&this->stream3);
 }
 
 ProceduralPerlin::~ProceduralPerlin()
@@ -126,6 +127,7 @@ ProceduralPerlin::~ProceduralPerlin()
 
 	cudaStreamDestroy(this->stream1);
 	cudaStreamDestroy(this->stream2);
+	cudaStreamDestroy(this->stream3);
 }
 
 void ProceduralPerlin::initializeOpenGL()
@@ -244,12 +246,20 @@ void ProceduralPerlin::generateTerrain()
 	             this->octaves,
 	             stream2);
 
+	perlinDevice(&this->layerDetailsD,
+	             this->perlinGeneratorSeed + 2,
+	             static_cast<long>(this->currentLocationX),
+	             static_cast<long>(this->currentLocationY),
+	             this->windowWidth,
+	             this->windowWidth,
+	             8,
+	             stream2);
+
 	cudaStreamSynchronize(stream1);
 	cudaStreamSynchronize(stream2);
+	cudaStreamSynchronize(stream3);
 
-	combineElevationAndHumdityLayers(&this->layersCombinedD, &this->layerElevationD, &this->layerHumidityD, this->windowWidth);
-
-	convertBiomesTouchar3(thrust::raw_pointer_cast(this->canvasD.data()), thrust::raw_pointer_cast(this->layersCombinedD.data()), this->windowWidth);
+	combineElevationAndHumdityLayers(&this->canvasD, &this->layerElevationD, &this->layerHumidityD, &this->layerDetailsD, this->windowWidth);
 
 	thrust::copy(this->canvasD.begin(), this->canvasD.end(), this->canvas);
 }

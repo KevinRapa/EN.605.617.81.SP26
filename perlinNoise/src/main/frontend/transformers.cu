@@ -1,6 +1,8 @@
 
 #include <transformers.h>
 
+#include <curand.h>
+#include <curand_kernel.h>
 #include <cuda_gl_interop.h>
 #include <cuda_runtime.h>
 
@@ -37,82 +39,113 @@ void convertNoiseToUchar3(uchar3 *pixels, const float *noise, unsigned pixelWidt
 	}
 }
 
-__global__ void convertBiomesTouchar3Kernel(uchar3 *pixels, const char *biomes, unsigned pixelWidth)
-{
-	unsigned globalIdx = blockIdx.x * blockDim.x + threadIdx.x;
-
-	switch (biomes[globalIdx]) {
-	case MOUNTAIN:
-		pixels[globalIdx] = make_uchar3(128, 128, 128);
-		break;
-	case FOREST:
-		pixels[globalIdx] = make_uchar3(80, 255, 80);
-		break;
-	case PLAINS:
-		pixels[globalIdx] = make_uchar3(255, 255, 80);
-		break;
-	case RIVER:
-		pixels[globalIdx] = make_uchar3(80, 255, 255);
-		break;
-	default:
-		pixels[globalIdx] = make_uchar3(0, 0, 0);
-		break;
-	}
-}
-
-void convertBiomesTouchar3(uchar3 *pixels, const char *biomes, unsigned pixelWidth)
-{
-	unsigned threadsPerBlock = 512;
-	unsigned numBlocks = (pixelWidth * pixelWidth) / threadsPerBlock;
-
-	convertBiomesTouchar3Kernel<<<numBlocks, threadsPerBlock>>>(pixels, biomes, pixelWidth);
-}
-
-enum ElevationThreshold { LOW, MEDIUM, HIGH };
+enum Threshold { LOW, MEDIUM, HIGH, VERY_HIGH };
 
 __global__ void combineElevationAndHumdityLayersKernel(
-	char *pixels,
+	uchar3 *pixels,
 	const float* elevation,
 	const float* humidity,
+	const float* details,
 	float elevationMin,
 	float elevationMax,
 	float humidityMin,
-	float humidityMax)
+	float humidityMax,
+	float detailsMin,
+	float detailsMax)
 {
 	unsigned globalIdx = blockIdx.x * blockDim.x + threadIdx.x;
 
-	bool hIsHigh = humidity[globalIdx] > (humidityMin + humidityMax) / 2.0;
-	enum ElevationThreshold eThresh;
+	enum Threshold elevationLevel;
+	enum Threshold humidityLevel;
 
 	float e = elevation[globalIdx];
-	char *out = pixels + globalIdx;
+	float h = humidity[globalIdx];
+	float detailPixel = details[globalIdx];
+	uchar3 pixelColor;
 
-	if (e > elevationMax * 0.4) {
-		eThresh = HIGH;
+	curandState_t state;
+	curand_init(1, globalIdx, 0, &state);
+
+	// Set the elevation level
+	if (e > elevationMax * 0.75) {
+		elevationLevel = VERY_HIGH;
+	} else if (e > elevationMax * 0.4) {
+		elevationLevel = HIGH;
 	} else if (e > elevationMax * 0.01) {
-		eThresh = MEDIUM;
+		elevationLevel = MEDIUM;
 	} else {
-		eThresh = LOW;
+		elevationLevel = LOW;
 	}
 
-	if (hIsHigh && eThresh == HIGH) {
-		*out = MOUNTAIN;
-	} else if (hIsHigh && eThresh == MEDIUM) {
-		*out = FOREST;
-	} else if (hIsHigh && eThresh == LOW) {
-		*out = RIVER;
-	} else if (!hIsHigh && eThresh == HIGH) {
-		*out = MOUNTAIN;
-	} else if (!hIsHigh && eThresh == MEDIUM) {
-		*out = PLAINS;
+	// Set the humidity level
+	if ((h - humidityMin) > (humidityMax - humidityMin) * 0.6) {
+		humidityLevel = HIGH;
+	} else if ((h - humidityMin) > (humidityMax - humidityMin) * 0.5) {
+		humidityLevel = MEDIUM;
 	} else {
-		*out = RIVER;
+		humidityLevel = LOW;
 	}
+
+	// Set the pixel color based on elevation and humidity. Also populate trees/bushes with detail layer
+	if (elevationLevel == VERY_HIGH) {
+		// SNOWCAP
+		float probabilityOfSnow;
+		float draw = static_cast<float>(curand(&state) % 101);
+
+		if (e > elevationMax * 0.90) {
+			probabilityOfSnow = 100.0;
+		} else if (e > elevationMax * 0.85) {
+			probabilityOfSnow = 80.0;
+		} else {
+			probabilityOfSnow = 60.0;
+		}
+
+		if (draw < probabilityOfSnow) {
+			pixelColor = make_uchar3(255, 255, 255);
+		} else {
+			pixelColor = make_uchar3(128, 128, 128);
+		}
+	} else if (elevationLevel == HIGH) {
+		// MOUNTAIN
+		pixelColor = make_uchar3(128, 128, 128);
+	} else if (elevationLevel == LOW) {
+		// RIVER
+		pixelColor = make_uchar3(80, 235, 235);
+	} else if (humidityLevel != LOW) {
+		// FOREST
+		float probabilityOfTree = ((detailPixel - detailsMin) / (detailsMax - detailsMin)) * 100.0;
+		float draw = static_cast<float>(curand(&state) % 101);
+
+		if (humidityLevel == MEDIUM) {
+			probabilityOfTree /= 4.0;
+		}
+
+		if (draw < probabilityOfTree) {
+			// There's a tree in this pixel
+			pixelColor = make_uchar3(80, 185, 80);
+		} else {
+			pixelColor = make_uchar3(80, 255, 80);
+		}
+	} else {
+		// PLAINS
+		float probabilityOfBush = ((detailPixel - detailsMin) / (detailsMax - detailsMin)) * 100.0 * 0.1;
+		float draw = static_cast<float>(curand(&state) % 101);
+
+		if (draw < probabilityOfBush) {
+			pixelColor = make_uchar3(140, 140, 80);
+		} else {
+			// There's a bush in this pixel
+			pixelColor = make_uchar3(225, 225, 80);
+		}
+	}
+
+	pixels[globalIdx] = pixelColor;
 }
 
-void combineElevationAndHumdityLayers(thrust::device_vector<char> *pixels,
+void combineElevationAndHumdityLayers(thrust::device_vector<uchar3> *pixels,
                                       const thrust::device_vector<float> *elevation,
                                       const thrust::device_vector<float> *humidity,
+                                      const thrust::device_vector<float> *details,
                                       unsigned pixelWidth)
 {
 	unsigned threadsPerBlock = 512;
@@ -120,11 +153,15 @@ void combineElevationAndHumdityLayers(thrust::device_vector<char> *pixels,
 
 	auto minMaxE = thrust::minmax_element(elevation->begin(), elevation->end());
 	auto minMaxH = thrust::minmax_element(humidity->begin(), humidity->end());
+	auto minMaxD = thrust::minmax_element(details->begin(), details->end());
 
 	combineElevationAndHumdityLayersKernel<<<numBlocks, threadsPerBlock>>>(
 	    thrust::raw_pointer_cast(pixels->data()),
 	    thrust::raw_pointer_cast(elevation->data()),
 	    thrust::raw_pointer_cast(humidity->data()),
+	    thrust::raw_pointer_cast(details->data()),
 	    *minMaxE.first, *minMaxE.second,
-	    *minMaxH.first, *minMaxH.second);
+	    *minMaxH.first, *minMaxH.second,
+	    *minMaxD.first, *minMaxD.second
+	);
 }
