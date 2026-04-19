@@ -132,6 +132,11 @@ int perlinDevice(thrust::device_vector<float> *noiseOut, long seed, long xCoord,
 	unsigned currentGridDim = 2;
 	unsigned currentChunkDim = CHUNK_DIM;
 
+	// Scales x/y coords. This is only needed to make sure the higher octaves move with the lower ones. This is because the block sizes
+	// for higher octaves are smaller, so without this scale, the higher octaves will appear to move slower when panning the viewer. In other
+	// words, the higher octaves will appear to be layers moving in the background.
+	unsigned scale = 1;
+
 	thrust::fill(thrust::cuda::par.on(stream), noiseOut->begin(), noiseOut->end(), 0);
 
 	thrust::device_vector<float> pixelsD(xDim * yDim);
@@ -156,7 +161,7 @@ int perlinDevice(thrust::device_vector<float> *noiseOut, long seed, long xCoord,
 		// Chunk is a square with a gradient vector at each corner.
 		generateVectorField<<<vectorFieldGridSize, vectorFieldBlockSize, 0, stream>>>(
 		    thrust::raw_pointer_cast(vectorMapD.data()),
-		    seed, xCoord, yCoord, o
+		    seed, xCoord * scale, yCoord * scale, o
 		);
 
 		// Generate the perlin noise using the vector field
@@ -172,6 +177,7 @@ int perlinDevice(thrust::device_vector<float> *noiseOut, long seed, long xCoord,
 		cublasSetStream(handle, stream);
 		cublasSaxpy(handle, xDim * yDim, &SCALAR, thrust::raw_pointer_cast(pixelsD.data()), 1, thrust::raw_pointer_cast(noiseOut->data()), 1);
 
+		scale *= 2;
 		currentGridDim *= 2;
 		currentChunkDim /= 2;
 	}
