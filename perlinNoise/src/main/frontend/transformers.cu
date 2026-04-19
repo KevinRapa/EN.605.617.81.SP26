@@ -65,6 +65,17 @@ __device__ enum Threshold getHumidityLevel(float humidity, float humidityMin, fl
 	}
 }
 
+/**
+ * Use a details pixel's percent of maximum as a probability that a feature exists in this pixel
+ */
+__device__ bool computeIfFeature(float detailPixel, float detailMax, float modifier, curandState_t *state)
+{
+	float probabilityOfFeature = (detailPixel / detailMax) * 100.0 * modifier;
+	float randomDraw = static_cast<float>(curand(state) % 101);
+
+	return randomDraw < probabilityOfFeature;
+}
+
 __global__ void combineElevationAndHumdityLayersKernel(
 	uchar3 *pixels,
 	const float* elevation,
@@ -113,28 +124,11 @@ __global__ void combineElevationAndHumdityLayersKernel(
 		pixelColor = make_uchar3(80, color - 30, color);
 	} else if (humidityLevel != LOW) {
 		// FOREST
-		float probabilityOfTree = (detailPixel / detailsMax) * 100.0;
-		float draw = static_cast<float>(curand(&state) % 101);
-
-		if (humidityLevel == MEDIUM) {
-			probabilityOfTree /= 4.0;  // Make trees sparser near edge of biome.
-		}
-
-		if (draw < probabilityOfTree) {
-			pixelColor = TREE_COLOR;
-		} else {
-			pixelColor = FOREST_FLOOR_COLOR;
-		}
+		float modifier = (humidityLevel == MEDIUM) ? 0.25 : 1.0;  // Make trees sparser near edge of biome.
+		pixelColor = computeIfFeature(detailPixel, detailsMax, modifier, &state) ? TREE_COLOR : FOREST_FLOOR_COLOR;
 	} else {
 		// PLAINS
-		float probabilityOfBush = (detailPixel / detailsMax) * 100.0 * 0.1;  // Bushes are rare, hence the 0.1 modifier
-		float draw = static_cast<float>(curand(&state) % 101);
-
-		if (draw < probabilityOfBush) {
-			pixelColor = BUSH_COLOR;
-		} else {
-			pixelColor = PLAINS_COLOR;
-		}
+		pixelColor = computeIfFeature(detailPixel, detailsMax, 0.1, &state) ? BUSH_COLOR : PLAINS_COLOR;
 	}
 
 	pixels[globalIdx] = pixelColor;

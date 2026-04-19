@@ -228,32 +228,16 @@ void ProceduralPerlin::panWindow(double x, double y)
 
 void ProceduralPerlin::generateTerrain()
 {
-	perlinDevice(&this->layerElevationD,
-	             this->perlinGeneratorSeed,
-	             static_cast<long>(this->currentLocationX),
-	             static_cast<long>(this->currentLocationY),
-	             this->windowWidth,
-	             this->windowWidth,
-	             this->octaves,
-	             stream1);
+	long locationX = static_cast<long>(this->currentLocationX);
+	long locationY = static_cast<long>(this->currentLocationY);
+	long seed = this->perlinGeneratorSeed;
 
-	perlinDevice(&this->layerHumidityD,
-	             this->perlinGeneratorSeed + 1,
-	             static_cast<long>(this->currentLocationX),
-	             static_cast<long>(this->currentLocationY),
-	             this->windowWidth,
-	             this->windowWidth,
-	             this->octaves,
-	             stream2);
+	perlinDevice(&this->layerElevationD, seed, locationX, locationY, this->windowWidth, this->windowWidth, this->octaves, stream1);
 
-	perlinDevice(&this->layerDetailsD,
-	             this->perlinGeneratorSeed + 2,
-	             static_cast<long>(this->currentLocationX),
-	             static_cast<long>(this->currentLocationY),
-	             this->windowWidth,
-	             this->windowWidth,
-	             8,
-	             stream2);
+	perlinDevice(&this->layerHumidityD, seed + 1, locationX, locationY, this->windowWidth, this->windowWidth, this->octaves, stream2);
+
+	// Always use max octaves so that details look speckly
+	perlinDevice(&this->layerDetailsD, seed + 2, locationX, locationY, this->windowWidth, this->windowWidth, 8, stream2);
 
 	cudaStreamSynchronize(stream1);
 	cudaStreamSynchronize(stream2);

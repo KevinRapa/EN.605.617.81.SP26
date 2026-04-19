@@ -20,6 +20,21 @@
  */
 void convertNoiseToUchar3(uchar3 *pixels, const char *noise, unsigned pixelWidth);
 
+/**
+ * Converts three layers of perlin noise into a canvas of pixel colors
+ *
+ * @description Uses elevation and humidity values to determine biomes for each pixel.
+ *              Currently supports snow cap, mountain, forest, plains, and river.
+ *              Adds additional details such as trees and bushes, and colors mountains
+ *              and rivers varying colors depending on elevation/depth
+ *
+ * @param pixels     output array.
+ * @param elevation  perlin noise map representing elevation.
+ * @param humidity   perlin noise map representing humidity.
+ * @param details    perlin noise map for details. The values in this map are interpreted
+ *                   as probabilities that a feature exists in the pixel, such as a tree.
+ * @param pixelWidth x/y dimension of noise maps.
+ */
 void combineElevationAndHumdityLayers(thrust::device_vector<uchar3> *pixels,
                                       const thrust::device_vector<float> *elevation,
                                       const thrust::device_vector<float> *humidity,
