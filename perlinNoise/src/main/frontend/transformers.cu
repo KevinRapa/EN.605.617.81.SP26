@@ -92,7 +92,7 @@ __global__ void combineElevationAndHumdityLayersKernel(
 
 	const uchar3 BUSH_COLOR = make_uchar3(130, 130, 60);
 	const uchar3 PLAINS_COLOR = make_uchar3(200, 200, 60);
-	const uchar3 TREE_COLOR = make_uchar3(50, 185, 50);
+	const uchar3 TREE_COLOR = make_uchar3(40, 165, 40);
 	const uchar3 FOREST_FLOOR_COLOR = make_uchar3(50, 235, 50);
 	const uchar3 SNOW_COLOR = make_uchar3(255, 255, 255);
 
@@ -116,8 +116,16 @@ __global__ void combineElevationAndHumdityLayersKernel(
 		pixelColor = SNOW_COLOR;
 	} else if (elevationLevel == HIGH) {
 		// MOUNTAIN. Modify brightness per elevation
-		unsigned char color = 128 + static_cast<unsigned char>(70.0 * (((e / elevationMax) - 0.4) / 0.35));  // Magic. Sorry
-		pixelColor = make_uchar3(color, color, color);
+		unsigned char mountainValue = 128 + static_cast<unsigned char>(70.0 * (((e / elevationMax) - 0.4) / 0.35));  // Magic. Sorry
+		uchar3 mountainColor = make_uchar3(mountainValue, mountainValue, mountainValue);
+
+		// Determine if there's a tree at this pixel
+		if (humidityLevel != LOW) {
+			pixelColor = computeIfFeature(detailPixel, detailsMax, 0.75, &state) ? TREE_COLOR : mountainColor;
+		} else {
+			// Bare mountain because it's dry
+			pixelColor = mountainColor;
+		}
 	} else if (elevationLevel == LOW) {
 		// RIVER. Modify brightness per depth
 		unsigned char color = 225 + static_cast<char>((e / elevationMax) / 0.01);  // Magic. This just looks fine.
